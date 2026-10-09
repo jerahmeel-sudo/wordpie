@@ -19,7 +19,7 @@
         },
         "players": {
           "$uid": {
-            ".write": "auth != null && auth.uid === $uid",
+            ".write": "auth != null && (auth.uid === $uid || (!newData.exists() && data.parent().parent().child('host').val() === auth.uid && !data.parent().parent().child('presence').child($uid).exists() && data.parent().parent().child('state').child('status').val() === 'lobby'))",
             ".validate": "newData.hasChildren(['name', 'joinedAt'])",
             "name": { ".validate": "newData.isString() && newData.val().length >= 1 && newData.val().length <= 16" },
             "joinedAt": { ".validate": "newData.isNumber()" },

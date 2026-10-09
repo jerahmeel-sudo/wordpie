@@ -263,6 +263,9 @@ body[data-invited="1"] .create-only { display: none !important; }
 .lobby-players .av { width: 30px; height: 30px; border-radius: 50%; display: grid; place-items: center; background: var(--tile); color: var(--tile-ink); font: 800 .85rem var(--display); flex: none; }
 .lobby-players .nm { font-weight: 700; flex: 1; min-width: 0; overflow-wrap: anywhere; }
 .lobby-players .tag { font-size: .78rem; color: var(--muted); }
+.lobby-players .kick { border: 1px solid var(--line); background: transparent; color: var(--stop); border-radius: 999px; padding: 4px 12px; font-size: .82rem; font-weight: 700; }
+.lobby-players .kick:hover { border-color: var(--stop); }
+.lobby-players .kick.armed { background: var(--stop); border-color: var(--stop); color: #fff; }
 .lobby-players li.empty { background: transparent; border: 2px dashed var(--line); color: var(--muted); }
 .lobby-players li.empty .av { background: transparent; border: 2px dashed var(--line); color: var(--muted); }
 .lobby-players li.empty .nm { font-weight: 400; display: flex; align-items: center; gap: 8px; }
@@ -1606,6 +1609,10 @@ body[data-invited="1"] .create-only { display: none !important; }
         return st;
       }).catch(e => console.error(e)).finally(() => { ON.rejoining = false; });
     }
+    if (s.status === "lobby" && !(r.players || {})[ON.uid] && !ON.leaving) {
+      leaveRoom("The host removed you from this game. You can join again if there's a free spot.");
+      return;
+    }
     $("#setup").hidden = true;
     $("#quitBtn").hidden = false;
     if (s.status === "lobby") {
@@ -1640,6 +1647,15 @@ body[data-invited="1"] .create-only { display: none !important; }
       li.append(dot, av, nm);
       if (u === r.host) { const t = document.createElement("span"); t.className = "tag"; t.textContent = "Host"; li.appendChild(t); }
       if (!pres[u]) { const t = document.createElement("span"); t.className = "tag"; t.textContent = "Offline"; li.appendChild(t); }
+      if (r.host === ON.uid && u !== ON.uid && !pres[u]) {
+        const armed = ON.kickArm && ON.kickArm.uid === u && Date.now() < ON.kickArm.until;
+        const b = document.createElement("button");
+        b.type = "button"; b.className = "kick" + (armed ? " armed" : "");
+        b.textContent = armed ? "Tap to confirm" : "Remove";
+        b.setAttribute("aria-label", "Remove " + onName(u) + " from the game");
+        b.addEventListener("click", () => kickPlayer(u));
+        li.appendChild(b);
+      }
       list.appendChild(li);
     });
     // Empty spots for players who haven't joined yet
@@ -1806,6 +1822,27 @@ body[data-invited="1"] .create-only { display: none !important; }
     const next = Math.min(8, Math.max(2, joined, lobbySeats(r) + delta));
     try { await ON.ref.child("state/seats").set(next); }
     catch (e) { console.error(e); $("#lobbyErr").textContent = "Couldn't change the number of players. Try again."; }
+  }
+  async function kickPlayer(u) {
+    const r = ON.room;
+    if (!r || r.host !== ON.uid || ((r.state || {}).status || "lobby") !== "lobby") return;
+    if (!(ON.kickArm && ON.kickArm.uid === u && Date.now() < ON.kickArm.until)) {
+      ON.kickArm = { uid: u, until: Date.now() + 3000 };
+      renderLobby(r);
+      setTimeout(() => { if (ON.room) renderLobby(ON.room); }, 3100);
+      return;
+    }
+    ON.kickArm = null;
+    const name = onName(u);
+    try {
+      await ON.ref.child("players/" + u).remove();
+      toast(name + " was removed. Their spot is open for someone else.");
+    } catch (e) {
+      console.error(e);
+      $("#lobbyErr").textContent = (r.presence || {})[u]
+        ? name + " is back online, so they can't be removed."
+        : "Couldn't remove " + name + ". Check the database rules are up to date.";
+    }
   }
   $("#seatMinus").addEventListener("click", () => setSeats(-1));
   $("#seatPlus").addEventListener("click", () => setSeats(1));
