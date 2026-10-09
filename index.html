@@ -98,6 +98,7 @@ button { cursor: pointer; }
 .stepper button:disabled { opacity: .3; cursor: not-allowed; }
 .stepper output { min-width: 44px; text-align: center; font: 800 1.2rem var(--display); font-variant-numeric: tabular-nums; }
 .names { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px; }
+.names input::placeholder, .textin::placeholder { color: var(--muted); opacity: 1; }
 .names input, .startword input {
   width: 100%; border: 1px solid var(--line); background: var(--bg); border-radius: 8px; padding: 10px 12px;
 }
@@ -450,7 +451,7 @@ body[data-invited="1"] .create-only { display: none !important; }
 
   const cfg = {
     count: 4,
-    names: ["Ada", "Tunde", "Ngozi", "Femi", "Player 5", "Player 6", "Player 7", "Player 8"],
+    names: ["", "", "", "", "", "", "", ""],   // empty = "Player N"
     timer: 60,
     start: "HELL",
     judge: "dict",        // "dict" | "table" | "trust"
@@ -526,6 +527,7 @@ body[data-invited="1"] .create-only { display: none !important; }
       inp.id = "name-" + i;
       inp.maxLength = 16;
       inp.value = cfg.names[i];
+      inp.placeholder = "Player " + (i + 1);
       inp.setAttribute("aria-label", "Name of player " + (i + 1));
       inp.addEventListener("input", () => { cfg.names[i] = inp.value; });
       box.appendChild(inp);
