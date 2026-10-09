@@ -931,9 +931,11 @@ body[data-invited="1"] .create-only { display: none !important; }
     renderAll();
     const p = G.players[G.turn];
     showSheet({
-      eyebrow: "Pass the device",
+      eyebrow: G.final ? "Final turn" : "Pass the device",
       title: p.name + ", you're up",
-      body: "Change one letter of " + current() + ". You have " + fmtTime(cfg.timer) + ".",
+      body: G.final
+        ? "Everyone else is out. Play one real word to win. If you go out too, nobody wins. Change one letter of " + current() + ". You have " + fmtTime(cfg.timer) + "."
+        : "Change one letter of " + current() + ". You have " + fmtTime(cfg.timer) + ".",
       word: current(),
       actions: [{ label: "Start my turn", kind: "go", run: () => { hideSheet(); startClock(); renderEditor(); } }]
     });
@@ -1053,6 +1055,7 @@ body[data-invited="1"] .create-only { display: none !important; }
     G.players[G.turn].words++;
     track("word_played", { mode: "one_phone" });
     sfx.good();
+    if (G.final) { stopClock(); finish(); return; }
     G.turn = nextAlive(G.turn);
     renderAll();
     setMsg("");
@@ -1086,15 +1089,22 @@ body[data-invited="1"] .create-only { display: none !important; }
     resetGiveUp();
     G.players[i].out = true;
     const left = alive();
-    if (left.length === 1) { finish(); return; }
+    if (left.length === 0) { finish(); return; }                 // final turn failed: draw
+    if (left.length === 1) {
+      if (left[0].words > 0) { finish(); return; }              // they've played a word: they win
+      G.final = true;                                           // they still have to play one
+    }
     sfx.out();
     G.turn = nextAlive(i);
     renderPlayers();
+    const what = G.players[i].name + " " + reason + (reason.startsWith("played") ? "" : " on " + current()) + ". ";
     showSheet({
       eyebrow: reason === "gave up" ? "Gave up" : reason === "ran out of time" ? "Time's up" : "Wrong word",
       badge: "✕", badgeClass: "out",
       title: G.players[i].name + " is out",
-      body: G.players[i].name + " " + reason + (reason.startsWith("played") ? "" : " on " + current()) + ". " + left.length + " players left. " + G.players[G.turn].name + " plays next from the same word.",
+      body: G.final
+        ? what + G.players[G.turn].name + " is the last player left, but hasn't played a word yet. One real word wins the game."
+        : what + left.length + " players left. " + G.players[G.turn].name + " plays next from the same word.",
       actions: [{ label: "Continue", kind: "go", run: () => { hideSheet(); handoff(); } }]
     });
   }
@@ -1112,14 +1122,14 @@ body[data-invited="1"] .create-only { display: none !important; }
 
   function finish() {
     const winner = alive()[0];
-    track("game_over", { mode: "one_phone", players: G.players.length, words_played: G.chain.length - 1 });
-    G.turn = G.players.indexOf(winner);
+    track("game_over", { mode: "one_phone", players: G.players.length, words_played: G.chain.length - 1, result: winner ? "win" : "draw" });
+    if (winner) G.turn = G.players.indexOf(winner);
     renderPlayers();
-    sfx.win();
+    if (winner) sfx.win(); else sfx.out();
     showSheet({
-      eyebrow: "Last one standing",
-      badge: "★",
-      title: winner.name + " wins!",
+      eyebrow: winner ? "Last one standing" : "Draw",
+      badge: winner ? "★" : "=",
+      title: winner ? winner.name + " wins!" : "Nobody wins",
       body: gameSummary(G.start, current(), G.chain.length - 1, G.players.map(p => [p.name, p.words])),
       word: current(),
       actions: [
@@ -1353,9 +1363,19 @@ body[data-invited="1"] .create-only { display: none !important; }
     const wasTurn = s.order[s.turn] === uid;
     s.event = { id: rid(), type: "out", uid, reason };
     const alive = aliveOf(s);
-    if (alive.length <= 1) {
-      s.status = "done"; s.winner = alive[0] || null;
+    const survivor = alive.length === 1 ? alive[0] : null;
+    const survivorPlayed = survivor && (s.chain || []).some(c => c.by === survivor);
+    if (alive.length === 0 || (survivor && (survivorPlayed || s.final))) {
+      // Game over: the survivor wins, or nobody does if the final turn failed
+      s.status = "done"; s.winner = survivorPlayed ? survivor : null;
       s.deadline = null; s.checking = null; s.pausedRemaining = null;
+    } else if (survivor) {
+      // Last player left hasn't played yet: one real word wins
+      s.final = survivor;
+      s.event.final = survivor;
+      s.turn = s.order.indexOf(survivor);
+      s.deadline = serverNow() + timerMs();
+      s.checking = null; s.pausedRemaining = null;
     } else if (wasTurn) {
       s.turn = nextIdx(s, s.order.indexOf(uid));
       s.deadline = serverNow() + timerMs();
@@ -1414,9 +1434,10 @@ body[data-invited="1"] .create-only { display: none !important; }
       chain.push({ w, by: ON.uid, pos: (res && res.pos) || "", meaning: (res && res.meaning) || "", unchecked: !!(res && res.unchecked) });
       s.chain = chain;
       s.checking = null; s.pausedRemaining = null;
+      s.event = { id: rid(), type: "word", uid: ON.uid, w, meaning: (res && res.meaning) || "" };
+      if (s.final) { s.status = "done"; s.winner = ON.uid; s.deadline = null; return s; }   // final turn passed: win
       s.turn = nextIdx(s, s.turn);
       s.deadline = serverNow() + timerMs();
-      s.event = { id: rid(), type: "word", uid: ON.uid, w, meaning: (res && res.meaning) || "" };
       return s;
     });
   }
@@ -1588,7 +1609,7 @@ body[data-invited="1"] .create-only { display: none !important; }
     }
     // Whose turn
     const mine = onMyTurn();
-    $("#turnName").textContent = s.status === "done" ? onName(s.winner) + " wins"
+    $("#turnName").textContent = s.status === "done" ? (s.winner ? onName(s.winner) + " wins" : "Nobody wins")
       : curUid === ON.uid ? "Your turn" : onName(curUid);
     const showForm = s.status === "playing" && curUid === ON.uid && !out[ON.uid];
     $("#playArea").hidden = !showForm;
@@ -1602,7 +1623,7 @@ body[data-invited="1"] .create-only { display: none !important; }
       if (s.checking) text = s.checking.uid === ON.uid ? "Checking your word…" : "Checking " + onName(s.checking.uid) + "'s word " + s.checking.w + "…";
       else if (out[ON.uid]) text = "You're out. " + onName(curUid) + " is playing.";
       else if (!order.includes(ON.uid)) text = "You're watching. " + onName(curUid) + " is playing.";
-      else text = onName(curUid) + " is thinking…";
+      else text = onName(curUid) + (s.final ? " needs one real word to win…" : " is thinking…");
       if (s.checking || !showForm) {
         const dots = document.createElement("span"); dots.className = "dots"; dots.innerHTML = "<span></span><span></span><span></span>";
         note.append(dots, document.createTextNode(text));
@@ -1625,13 +1646,13 @@ body[data-invited="1"] .create-only { display: none !important; }
     if (s.status === "done" && ON.sheet !== "done") {
       ON.sheet = "done";
       const isHost = r.host === ON.uid, won = s.winner === ON.uid;
-      if (isHost) track("game_over", { mode: "online", players: order.length, words_played: chain.length - 1 });
+      if (isHost) track("game_over", { mode: "online", players: order.length, words_played: chain.length - 1, result: s.winner ? "win" : "draw" });
       if (won) sfx.win(); else sfx.out();
       const counts = order.map(u => [onName(u), chain.filter(c => c.by === u).length]);
       showSheet({
-        eyebrow: "Last one standing",
-        badge: "★",
-        title: won ? "You win!" : onName(s.winner) + " wins!",
+        eyebrow: s.winner ? "Last one standing" : "Draw",
+        badge: s.winner ? "★" : "=",
+        title: won ? "You win!" : s.winner ? onName(s.winner) + " wins!" : "Nobody wins",
         body: gameSummary(chain[0].w, onWord(), chain.length - 1, counts) + (isHost ? "" : " Waiting for " + onName(r.host) + " to start a rematch."),
         word: onWord(),
         actions: isHost
@@ -1653,7 +1674,9 @@ body[data-invited="1"] .create-only { display: none !important; }
     else if (ev.type === "reject" && !me) toast(onName(ev.uid) + " tried " + ev.w + ", but it isn't in the dictionary.");
     else if (ev.type === "out") {
       if (s.status !== "done") sfx.out();
-      toast(me ? "You " + ev.reason + ", so you're out." : onName(ev.uid) + " " + ev.reason + ". " + onName(ev.uid) + " is out.");
+      let msg = me ? "You " + ev.reason + ", so you're out." : onName(ev.uid) + " " + ev.reason + ". " + onName(ev.uid) + " is out.";
+      if (ev.final) msg += ev.final === ON.uid ? " Play one real word to win!" : " " + onName(ev.final) + " needs one real word to win.";
+      toast(msg);
     }
   }
 
