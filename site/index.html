@@ -1330,7 +1330,7 @@ body[data-invited="1"] .create-only { display: none !important; }
   }
 
   function enterRoom(code) {
-    ON.active = true; ON.code = code; ON.seenFirst = false; ON.turnKey = null; ON.sheet = null; ON.chainKey = null;
+    ON.active = true; ON.code = code; ON.seenFirst = false; ON.turnKey = null; ON.sheet = null; ON.chainKey = null; ON.lastHost = null; ON.claimKey = null;
     ON.ref = ON.db.ref("rooms/" + code);
     const pres = ON.ref.child("presence/" + ON.uid);
     const conn = ON.db.ref(".info/connected");
@@ -1366,8 +1366,13 @@ body[data-invited="1"] .create-only { display: none !important; }
 
   async function onlineLeave() {
     const r = ON.room, uid = ON.uid;
+    ON.leaving = true;                         // don't auto-rejoin while walking out
     try {
       const st = (r && r.state) || {};
+      if (r && st.status !== "lobby" && r.host === uid) {
+        const next = nextHost(r, uid);
+        if (next) await ON.ref.child("host").set(next);
+      }
       if (st.status === "playing" && (st.order || []).includes(uid) && !(st.out || {})[uid]) {
         await txState(s => s.status === "playing" ? eliminateIn(s, uid, "left the game") : undefined);
       } else if (r && st.status === "lobby") {
@@ -1382,6 +1387,7 @@ body[data-invited="1"] .create-only { display: none !important; }
       }
     } catch (e) { console.error(e); }
     leaveRoom();
+    ON.leaving = false;
   }
 
   /* --- state helpers (run inside transactions) --- */
@@ -1536,8 +1542,29 @@ body[data-invited="1"] .create-only { display: none !important; }
   }
 
   // Runs on every phone: paints the clock and ends turns whose time is up.
+  // Who should host next: the earliest-joined player who is online and still in the game (else anyone online)
+  function nextHost(r, except) {
+    const pres = r.presence || {}, out = ((r.state || {}).out) || {};
+    const byJoin = (a, b) => r.players[a].joinedAt - r.players[b].joinedAt;
+    const online = Object.keys(r.players || {}).filter(u => u !== except && pres[u]).sort(byJoin);
+    return online.find(u => !out[u]) || online[0] || null;
+  }
+  let hostAwaySince = 0;
+  function checkHost() {
+    const r = ON.room;
+    if (!r || !r.host || r.host === ON.uid || (r.presence || {})[r.host]) { hostAwaySince = 0; return; }
+    hostAwaySince = hostAwaySince || Date.now();
+    if (Date.now() - hostAwaySince < AWAY_LIMIT) return;
+    if (nextHost(r, r.host) !== ON.uid || ON.claimKey === "host:" + r.host) return;
+    ON.claimKey = "host:" + r.host;
+    const gone = r.host;
+    ON.ref.child("host").transaction(h => (h === gone ? ON.uid : undefined))
+      .catch(e => console.warn("Couldn't take over as host (check the database rules are up to date)", e));
+  }
+
   function onlineTick() {
     const s = onState();
+    checkHost();
     if (!ON.room || s.status !== "playing") return;
     const pres = ON.room.presence || {};
     (s.order || []).forEach(u => {
@@ -1581,6 +1608,22 @@ body[data-invited="1"] .create-only { display: none !important; }
     const r = ON.room;
     if (!r) { leaveRoom("That game was closed."); return; }
     const s = onState();
+    // The host changed: say so, and redraw the end-of-game screen so the new host gets "Play again"
+    if (ON.lastHost && r.host && r.host !== ON.lastHost) {
+      toast(r.host === ON.uid ? "You're the host now. You can start the next game." : onName(r.host) + " is the host now.");
+      if (ON.sheet === "done") { hideSheet(); ON.sheet = null; }
+    }
+    ON.lastHost = r.host;
+    // Back after leaving or losing signal: rejoin the game in progress
+    if (s.status === "playing" && (s.out || {})[ON.uid] === "left the game" && !s.final && !ON.rejoining && !ON.leaving) {
+      ON.rejoining = true;
+      txState(st => {
+        if (st.status !== "playing" || st.final || (st.out || {})[ON.uid] !== "left the game") return;
+        delete st.out[ON.uid];
+        st.event = { id: rid(), type: "back", uid: ON.uid };
+        return st;
+      }).catch(e => console.error(e)).finally(() => { ON.rejoining = false; });
+    }
     $("#setup").hidden = true;
     $("#quitBtn").hidden = false;
     if (s.status === "lobby") {
@@ -1738,6 +1781,7 @@ body[data-invited="1"] .create-only { display: none !important; }
     ON.lastEvent = ev.id;
     const me = ev.uid === ON.uid;
     if (ev.type === "start") toast("Game on! " + onName((s.order || [])[0]) + " goes first.");
+    else if (ev.type === "back") toast(me ? "You're back in the game." : onName(ev.uid) + " is back in the game.");
     else if (ev.type === "word" && !me) toast(onName(ev.uid) + " played " + ev.w + (ev.meaning ? ": " + shorten(ev.meaning, 80) : ""));
     else if (ev.type === "reject" && !me) toast(onName(ev.uid) + " tried " + ev.w + ", but it isn't in the dictionary.");
     else if (ev.type === "out") {
@@ -1753,9 +1797,12 @@ body[data-invited="1"] .create-only { display: none !important; }
   }
 
   const shorten = (t, n) => t.length <= n ? t : t.slice(0, n).replace(/[\s,;:]+\S*$/, "") + "…";
-  let toastTimer = 0;
+  let toastTimer = 0, toastAt = 0;
   function toast(text) {
     const t = $("#toast");
+    // Two messages at once (e.g. someone left and the host changed): show both
+    if (!t.hidden && Date.now() - toastAt < 1500 && !t.textContent.includes(text)) text = t.textContent + " " + text;
+    toastAt = Date.now();
     t.textContent = text; t.hidden = false;
     t.style.animation = "none"; void t.offsetWidth; t.style.animation = "";
     clearTimeout(toastTimer);
