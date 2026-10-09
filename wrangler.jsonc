@@ -1,0 +1,10 @@
+// Cloudflare Workers settings: serve the built site/ folder as static files.
+// "single-page-application" sends unknown paths (such as /join/K7QM2 invite links) to index.html.
+{
+  "name": "wordpie",
+  "compatibility_date": "2026-09-01",
+  "assets": {
+    "directory": "./site",
+    "not_found_handling": "single-page-application"
+  }
+}

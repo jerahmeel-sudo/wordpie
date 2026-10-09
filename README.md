@@ -35,21 +35,22 @@ node build.mjs
 
 Until step 6 is done, the game only offers "On one phone".
 
-## Setup: hosting on Cloudflare Pages (updates itself from GitHub)
+## Setup: hosting on Cloudflare Workers (updates itself from GitHub)
 
-1. In the Cloudflare dashboard, go to **Workers & Pages → Create → Pages → Connect to Git**.
-2. Connect your GitHub account and choose the `wordpie` repository.
-3. Use these build settings:
-   - Production branch: `main`
-   - Framework preset: `None`
+The site runs as a Cloudflare Worker that serves static files. Its settings are in `wrangler.jsonc`.
+
+1. In the Cloudflare dashboard, go to **Workers & Pages → Create** and import the `wordpie` repository from GitHub.
+2. Use these settings:
+   - Project name: `wordpie` (must match `name` in `wrangler.jsonc`)
    - Build command: `node build.mjs`
-   - Build output directory: `site`
-4. Click **Save and Deploy**.
-5. In the project, go to **Custom domains → Set up a domain**, then enter `wordpie.app`. Cloudflare connects it automatically, because the domain is in the same account.
+   - Deploy command: `npx wrangler deploy`
+   - Preview command: `npx wrangler preview`
+3. Click **Deploy**.
+4. In the Worker, go to **Settings → Domains & Routes → Add → Custom domain**, then enter `wordpie.app`.
 
-From then on, every push to `main` rebuilds and publishes wordpie.app in about a minute. Pushes to any other branch get their own preview address, so you can test changes before they go live.
+From then on, every push to `main` rebuilds and publishes wordpie.app in about a minute. With preview builds turned on, other branches get their own test address.
 
-Invite links look like `https://wordpie.app/join/K7QM2`. Cloudflare Pages sends every address to `index.html`, so these links work without extra setup. For that to keep working, don't add a `404.html` file.
+Invite links look like `https://wordpie.app/join/K7QM2`. The `"not_found_handling": "single-page-application"` setting in `wrangler.jsonc` sends these addresses to `index.html`. Keep that setting, and don't add a `404.html` file.
 
 ## How online games work
 
