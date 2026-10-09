@@ -26,6 +26,7 @@ const page = `<!doctype html>
 <meta name="description" content="Wordpie: change one letter, make a new word, beat the clock. Play on one phone or invite friends online.">
 ${headBits.join("\n")}
 <style>[hidden]{display:none!important}body{margin:0}img{max-width:100%}</style>
+<script>try{var t=localStorage.getItem("wordpie.theme");if(t==="light"||t==="dark")document.documentElement.dataset.theme=t}catch(e){}</script>
 <script src="/firebase-config.js"></script>
 ${analytics}
 </head>

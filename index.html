@@ -276,6 +276,7 @@ body[data-invited="1"] .create-only { display: none !important; }
       <h1>Wordpie</h1>
     </div>
     <div class="bar-actions">
+      <button class="ghost" id="themeBtn" type="button">Dark mode</button>
       <button class="ghost" id="soundBtn" type="button" aria-pressed="true">Sound on</button>
       <button class="ghost" id="quitBtn" type="button" hidden>End game</button>
     </div>
@@ -1650,6 +1651,27 @@ body[data-invited="1"] .create-only { display: none !important; }
     setTimeout(() => primary && primary.focus(), 30);
   }
   function hideSheet() { $("#sheet").hidden = true; }
+
+  /* ---------- light / dark theme ---------- */
+  // Follows the device setting until the player picks one; the choice is remembered on this device.
+  const darkQuery = window.matchMedia("(prefers-color-scheme: dark)");
+  const isDark = () => {
+    const t = document.documentElement.dataset.theme;
+    return t ? t === "dark" : darkQuery.matches;
+  };
+  function paintThemeBtn() {
+    $("#themeBtn").textContent = isDark() ? "Light mode" : "Dark mode";
+  }
+  $("#themeBtn").addEventListener("click", () => {
+    const next = isDark() ? "light" : "dark";
+    document.documentElement.dataset.theme = next;
+    store.set("wordpie.theme", next);
+    paintThemeBtn();
+  });
+  const savedTheme = store.get("wordpie.theme");
+  if (savedTheme === "light" || savedTheme === "dark") document.documentElement.dataset.theme = savedTheme;
+  paintThemeBtn();
+  darkQuery.addEventListener("change", paintThemeBtn);
 
   /* ---------- boot ---------- */
   renderNames(); renderTimer(); renderLen(); renderDemo();
