@@ -149,10 +149,24 @@ button { cursor: pointer; }
 .tile.changed { background: var(--go); color: #fff; box-shadow: inset 0 -5px 0 rgba(0,0,0,.25); }
 .tile.small { width: 1.9rem; font-size: 1rem; border-radius: 6px; box-shadow: inset 0 -3px 0 var(--tile-edge); }
 .tile.small.changed { box-shadow: inset 0 -3px 0 rgba(0,0,0,.25); }
-.tiles.preview .tile { background: transparent; color: var(--ink); box-shadow: none; border: 2px dashed var(--line); }
-.tiles.preview .tile.filled { border-style: solid; border-color: var(--muted); }
-.tiles.preview .tile.diff { border-color: var(--go); color: var(--go); background: var(--go-soft); }
-.tiles.preview.toomany .tile.diff { border-color: var(--stop); color: var(--stop); background: var(--stop-soft); }
+/* Word editor: tap a tile, then a key */
+.playarea { display: grid; gap: 14px; justify-items: center; width: 100%; }
+.tiles.editor button.tile { border: 0; padding: 0; cursor: pointer; background: var(--surface); color: var(--ink);
+  box-shadow: inset 0 0 0 2px var(--line), inset 0 -5px 0 var(--line); }
+.tiles.editor button.tile:hover { box-shadow: inset 0 0 0 2px var(--muted), inset 0 -5px 0 var(--muted); }
+.tiles.editor button.tile.sel { box-shadow: inset 0 0 0 3px var(--go), inset 0 -5px 0 var(--go); color: var(--muted); }
+.tiles.editor button.tile.diff { background: var(--go); color: #fff; box-shadow: inset 0 -5px 0 rgba(0,0,0,.25); }
+.edit-hint { margin: 0; min-height: 1.4em; text-align: center; }
+.edit-hint.nudge { color: var(--stop); font-weight: 700; }
+.keys { display: grid; gap: 6px; width: 100%; max-width: 460px; }
+.keys .row { display: flex; gap: 5px; justify-content: center; }
+.key {
+  flex: 1 1 0; min-width: 0; max-width: 42px; height: 48px; padding: 0;
+  border: 1px solid var(--line); border-radius: 8px; background: var(--surface); color: var(--ink);
+  font: 700 1.05rem var(--display); touch-action: manipulation;
+}
+.key:hover { border-color: var(--muted); }
+.key:active { background: var(--tile); color: var(--tile-ink); }
 .pop { animation: pop .35s ease; }
 @keyframes pop { 0% { transform: scale(.7); } 60% { transform: scale(1.08); } 100% { transform: scale(1); } }
 .shake { animation: shake .35s ease; }
@@ -371,9 +385,9 @@ body[data-invited="1"] .create-only { display: none !important; }
       <ol>
         <li class="local-only">Pass the device to the player whose name is shown. They tap <b>Start my turn</b> and the clock begins.</li>
         <li class="online-only">Everyone plays on their own phone. When it's your turn, your phone beeps and your clock starts.</li>
-        <li>Type a word that changes exactly one letter of the current word. Same length, same positions.</li>
+        <li>Tap the letter you want to change, then pick its new letter. Tap <b>Play word</b>.</li>
         <li>No repeats. A word already in the chain can't be played again.</li>
-        <li>With the dictionary as referee, the clock pauses while it checks the word is real and shows everyone what it means. Not a word? The clock restarts and you try again.</li>
+        <li>You get one try. The clock pauses while the dictionary checks your word and shows everyone what it means. Not a real word, or already played? You're out.</li>
         <li>Stuck? Tap <b>Give up</b>. Out of time? You're out too. The next player keeps going from the same word.</li>
         <li>In a game of 4, players drop out one by one until a single winner is left.</li>
       </ol>
@@ -432,12 +446,16 @@ body[data-invited="1"] .create-only { display: none !important; }
         <span class="eyebrow">Current word</span>
         <div class="tiles" id="currentTiles"></div>
       </div>
-      <div class="tiles preview" id="previewTiles" aria-hidden="true"></div>
       <p class="waitnote" id="waitNote" hidden></p>
-      <form class="playform" id="playForm" autocomplete="off">
-        <input id="wordInput" spellcheck="false" autocapitalize="characters" autocomplete="off" aria-label="Your word" placeholder="type">
-        <button class="btn go" type="submit" id="playBtn">Play word</button>
-      </form>
+      <div class="playarea" id="playArea">
+        <div class="tiles editor" id="previewTiles" role="group" aria-label="Your word. Tap a letter to change it."></div>
+        <p class="hint edit-hint" id="editHint" aria-live="polite"></p>
+        <div class="keys" id="keys" aria-label="Letters"></div>
+        <form class="playform" id="playForm" autocomplete="off">
+          <button class="btn quiet" type="button" id="undoBtn">Undo</button>
+          <button class="btn go" type="submit" id="playBtn">Play word</button>
+        </form>
+      </div>
       <p class="msg" id="msg" role="status"></p>
       <div class="giveup-row">
         <button class="btn stop" type="button" id="giveUpBtn">Give up</button>
@@ -532,6 +550,78 @@ body[data-invited="1"] .create-only { display: none !important; }
     cfg.sound = !cfg.sound;
     e.currentTarget.textContent = cfg.sound ? "Sound on" : "Sound off";
     e.currentTarget.setAttribute("aria-pressed", cfg.sound);
+  });
+
+  /* ---------- word editor: tap a tile, then pick its new letter ---------- */
+  const ED = { base: "", idx: -1, letter: "" };
+  const KEY_ROWS = ["QWERTYUIOP", "ASDFGHJKL", "ZXCVBNM"];
+  function editorWord() {
+    return ED.idx >= 0 && ED.letter ? ED.base.slice(0, ED.idx) + ED.letter + ED.base.slice(ED.idx + 1) : "";
+  }
+  function editorReset(base) { ED.base = base || ""; ED.idx = -1; ED.letter = ""; renderEditor(); }
+  function canEdit() { return ON.active ? onMyTurn() && !ON.busy : !!(G && G.running); }
+  function renderEditor() {
+    const box = $("#previewTiles");
+    box.innerHTML = "";
+    [...ED.base].forEach((ch, i) => {
+      const b = document.createElement("button");
+      const changed = i === ED.idx && ED.letter;
+      b.type = "button";
+      b.className = "tile" + (i === ED.idx ? " sel" : "") + (changed ? " diff" : "");
+      b.textContent = changed ? ED.letter : ch;
+      b.setAttribute("aria-label", "Letter " + (i + 1) + ", " + b.textContent + (i === ED.idx ? ", selected" : ""));
+      b.addEventListener("click", () => editorSelect(i));
+      box.appendChild(b);
+    });
+    const w = editorWord(), hint = $("#editHint");
+    hint.classList.remove("nudge");
+    hint.textContent = ED.idx < 0 ? "Tap the letter you want to change."
+      : w ? "Your word: " + w + ". Tap Play word."
+      : "Now pick a new letter for it.";
+    $("#playBtn").disabled = !w || !canEdit();
+    $("#undoBtn").disabled = ED.idx < 0;
+  }
+  function editorSelect(i) {
+    if (!canEdit() || i < 0 || i >= ED.base.length) return;
+    if (ED.idx !== i) { ED.idx = i; ED.letter = ""; }
+    renderEditor();
+    if ($("#msg").classList.contains("bad")) setMsg("");
+  }
+  function editorKey(L) {
+    if (!canEdit()) return;
+    if (ED.idx < 0) {
+      const hint = $("#editHint");
+      hint.textContent = "First tap the letter in the word you want to change.";
+      hint.classList.remove("nudge"); void hint.offsetWidth; hint.classList.add("nudge");
+      return;
+    }
+    ED.letter = L === ED.base[ED.idx] ? "" : L;
+    renderEditor();
+  }
+  function editorUndo() { ED.idx = -1; ED.letter = ""; renderEditor(); }
+  KEY_ROWS.forEach(row => {
+    const r = document.createElement("div");
+    r.className = "row";
+    [...row].forEach(L => {
+      const k = document.createElement("button");
+      k.type = "button"; k.className = "key"; k.textContent = L;
+      k.addEventListener("click", () => editorKey(L));
+      r.appendChild(k);
+    });
+    $("#keys").appendChild(r);
+  });
+  $("#undoBtn").addEventListener("click", editorUndo);
+  // A physical keyboard works too: letters, Backspace, arrows, Enter
+  document.addEventListener("keydown", e => {
+    if ($("#game").hidden || !$("#sheet").hidden || $("#playArea").hidden || e.ctrlKey || e.metaKey || e.altKey) return;
+    if (/^[a-z]$/i.test(e.key)) { e.preventDefault(); editorKey(e.key.toUpperCase()); }
+    else if (e.key === "Backspace") { e.preventDefault(); if (ED.letter) { ED.letter = ""; renderEditor(); } else editorUndo(); }
+    else if (e.key === "ArrowLeft" || e.key === "ArrowRight") {
+      e.preventDefault();
+      const len = ED.base.length, step = e.key === "ArrowLeft" ? -1 : 1;
+      editorSelect(ED.idx < 0 ? (step > 0 ? 0 : len - 1) : (ED.idx + step + len) % len);
+    }
+    else if (e.key === "Enter" && editorWord()) { e.preventDefault(); $("#playForm").requestSubmit(); }
   });
 
   /* ---------- setup ---------- */
@@ -755,14 +845,12 @@ body[data-invited="1"] .create-only { display: none !important; }
   function renderAll() {
     renderPlayers();
     renderCurrent(G.chain.map(c => c.word));
-    renderPreview("");
+    editorReset(current());
     renderChain(G.chain.map(c => ({
       word: c.word, meaning: c.meaning, pos: c.pos,
       who: c.by < 0 ? "Starting word" : G.players[c.by].name + (c.overruled ? " · players overruled the dictionary" : "")
     })));
     $("#turnName").textContent = G.players[G.turn].name;
-    $("#wordInput").maxLength = current().length;
-    $("#wordInput").value = "";
     setMsg("");
     renderClock();
   }
@@ -788,25 +876,6 @@ body[data-invited="1"] .create-only { display: none !important; }
     const row = tileRow(words[n - 1], { changed });
     box.replaceChildren(...row.children);
     if (changed >= 0) box.children[changed].classList.add("pop");
-  }
-
-  function renderPreview(typed) {
-    const box = $("#previewTiles");
-    const cur = current();
-    box.innerHTML = "";
-    let diffs = 0;
-    for (let i = 0; i < cur.length; i++) if (typed[i] && typed[i] !== cur[i]) diffs++;
-    box.classList.toggle("toomany", diffs > 1);
-    for (let i = 0; i < cur.length; i++) {
-      const t = document.createElement("span");
-      t.className = "tile";
-      if (typed[i]) {
-        t.textContent = typed[i];
-        t.classList.add("filled");
-        if (typed[i] !== cur[i]) t.classList.add("diff");
-      }
-      box.appendChild(t);
-    }
   }
 
   // entries: [{word, who, meaning, pos}], oldest first
@@ -884,34 +953,25 @@ body[data-invited="1"] .create-only { display: none !important; }
       title: p.name + ", you're up",
       body: "Change one letter of " + current() + ". You have " + fmtTime(cfg.timer) + ".",
       word: current(),
-      actions: [{ label: "Start my turn", kind: "go", run: () => { hideSheet(); startClock(); setTimeout(() => $("#wordInput").focus(), 30); } }]
+      actions: [{ label: "Start my turn", kind: "go", run: () => { hideSheet(); startClock(); renderEditor(); } }]
     });
   }
 
   function reject(text) {
     setMsg(text, "bad");
     sfx.bad();
-    const f = $("#playForm"); f.classList.remove("shake"); void f.offsetWidth; f.classList.add("shake");
+    const f = $("#previewTiles"); f.classList.remove("shake"); void f.offsetWidth; f.classList.add("shake");
   }
-
-  $("#wordInput").addEventListener("input", e => {
-    const v = clean(e.target.value).slice(0, current().length);
-    e.target.value = v;
-    renderPreview(v);
-    if ($("#msg").classList.contains("bad")) setMsg("");
-  });
 
   $("#playForm").addEventListener("submit", e => {
     e.preventDefault();
     if (ON.active) { onlineSubmit(); return; }
     if (!G || !G.running) return;
-    const w = clean($("#wordInput").value);
+    const w = editorWord();
     const cur = current();
-    if (w.length !== cur.length) return reject("Your word needs " + cur.length + " letters.");
+    if (!w) return reject("Tap a letter in the word, then pick its new letter.");
     const d = diffIdx(cur, w);
-    if (d.length === 0) return reject("That's the same word. Change one letter.");
-    if (d.length > 1) return reject("You changed " + d.length + " letters. Change only one.");
-    if (G.used.has(w)) return reject(w + " has already been played.");
+    if (G.used.has(w)) { stopClock(); eliminate(G.turn, "played " + w + ", which was already used"); return; }
     if (cfg.judge === "dict") {
       stopClock();
       refereeCheck(w, cur, d[0]);
@@ -923,7 +983,7 @@ body[data-invited="1"] .create-only { display: none !important; }
         body: G.players[G.turn].name + " changed " + cur + " to " + w + ". Everyone agree?",
         word: w, changed: d[0],
         actions: [
-          { label: "Reject", kind: "quiet", run: () => { hideSheet(); startClock(); reject("The table rejected " + w + ". Try another word."); $("#wordInput").select(); } },
+          { label: "Reject", kind: "quiet", run: () => { hideSheet(); eliminate(G.turn, "played " + w + ", which the players rejected"); } },
           { label: "Accept", kind: "go", run: () => { hideSheet(); commit(w); } }
         ]
       });
@@ -940,7 +1000,7 @@ body[data-invited="1"] .create-only { display: none !important; }
       body: note + " " + G.players[G.turn].name + " changed " + cur + " to " + w + ". Everyone agree?",
       word: w, changed,
       actions: [
-        { label: "Reject", kind: "quiet", run: () => { hideSheet(); startClock(); reject("The table rejected " + w + ". Try another word."); $("#wordInput").select(); } },
+        { label: "Reject", kind: "quiet", run: () => { hideSheet(); eliminate(G.turn, "played " + w + ", which the players rejected"); } },
         { label: "Accept", kind: "go", run: () => { hideSheet(); commit(w); } }
       ]
     });
@@ -996,10 +1056,10 @@ body[data-invited="1"] .create-only { display: none !important; }
         title: w + " isn't a word",
         word: w, changed,
         extra: verdictBox("no", "", res.reason || "It isn't in the dictionary."),
-        body: p.name + ", the clock restarts when you close this. Try another word.",
+        body: "Everyone gets one try, so " + p.name + " is out. If you all agree it's a real word, you can accept it instead.",
         actions: [
           { label: "We accept it anyway", kind: "quiet", run: () => { hideSheet(); commit(w, { meaning: "", pos: "", overruled: true }); } },
-          { label: "Try again", kind: "go", run: () => { hideSheet(); startClock(); setMsg(w + " isn't a word. Try another.", "bad"); $("#wordInput").select(); } }
+          { label: p.name + " is out", kind: "go", run: () => { hideSheet(); eliminate(G.turn, "played " + w + ", which isn't a word"); } }
         ]
       });
     }
@@ -1049,10 +1109,10 @@ body[data-invited="1"] .create-only { display: none !important; }
     G.turn = nextAlive(i);
     renderPlayers();
     showSheet({
-      eyebrow: reason === "gave up" ? "Gave up" : "Time's up",
+      eyebrow: reason === "gave up" ? "Gave up" : reason === "ran out of time" ? "Time's up" : "Wrong word",
       badge: "✕", badgeClass: "out",
       title: G.players[i].name + " is out",
-      body: G.players[i].name + " " + reason + " on " + current() + ". " + left.length + " players left. " + G.players[G.turn].name + " plays next from the same word.",
+      body: G.players[i].name + " " + reason + (reason.startsWith("played") ? "" : " on " + current()) + ". " + left.length + " players left. " + G.players[G.turn].name + " plays next from the same word.",
       actions: [{ label: "Continue", kind: "go", run: () => { hideSheet(); handoff(); } }]
     });
   }
@@ -1270,7 +1330,7 @@ body[data-invited="1"] .create-only { display: none !important; }
     try { history.replaceState(null, "", "/"); } catch (e) {}
     hideSheet();
     $("#lobby").hidden = true; $("#game").hidden = true; $("#setup").hidden = false;
-    $("#quitBtn").hidden = true; $("#playForm").hidden = false; $("#waitNote").hidden = true;
+    $("#quitBtn").hidden = true; $("#playArea").hidden = false; $("#waitNote").hidden = true;
     $(".giveup-row").hidden = false;
     resetQuit();
     if (note) toast(note);
@@ -1381,14 +1441,15 @@ body[data-invited="1"] .create-only { display: none !important; }
 
   async function onlineSubmit() {
     if (ON.busy || !onMyTurn()) return;
-    const w = clean($("#wordInput").value);
-    const cur = current();
-    if (w.length !== cur.length) return reject("Your word needs " + cur.length + " letters.");
-    const d = diffIdx(cur, w);
-    if (d.length === 0) return reject("That's the same word. Change one letter.");
-    if (d.length > 1) return reject("You changed " + d.length + " letters. Change only one.");
-    if (onChain().some(c => c.w === w)) return reject(w + " has already been played.");
+    const w = editorWord();
+    if (!w) return reject("Tap a letter in the word, then pick its new letter.");
+    if (onChain().some(c => c.w === w)) {
+      try { await txState(s => (s.status === "playing" && s.order[s.turn] === ON.uid && !s.checking) ? eliminateIn(s, ON.uid, "played " + w + ", which was already used") : undefined); }
+      catch (e) { console.error(e); setMsg("Connection problem. Try again.", "bad"); }
+      return;
+    }
     ON.busy = true;
+    renderEditor();
     const done = busy($("#playBtn"), "Checking…");
     try {
       if (ON.room.settings.judge === "trust") {
@@ -1414,20 +1475,17 @@ body[data-invited="1"] .create-only { display: none !important; }
         if (await commitWord(w, res, true)) { sfx.good(); track("word_played", { mode: "online" }); }
         else setMsg("The check took too long, so your clock restarted. Play your word again.", "bad");
       } else {
-        await txState(s => {
+        // One try: a word the dictionary rejects puts you out
+        const out = await txState(s => {
           if (!s.checking || s.checking.uid !== ON.uid || s.checking.w !== w) return;
-          s.deadline = serverNow() + (s.pausedRemaining || 0);
-          s.checking = null; s.pausedRemaining = null;
-          s.event = { id: rid(), type: "reject", uid: ON.uid, w };
-          return s;
+          return eliminateIn(s, ON.uid, "played " + w + ", which isn't in the dictionary");
         });
-        reject(w + " isn't in the dictionary. Try another word.");
-        $("#wordInput").select();
+        if (!out) setMsg("The check took too long, so your clock restarted. Play your word again.", "bad");
       }
     } catch (e) {
       console.error(e);
       setMsg("Connection problem. Try again.", "bad");
-    } finally { ON.busy = false; done(); }
+    } finally { ON.busy = false; done(); renderEditor(); }
   }
 
   async function onlineGiveUp() {
@@ -1544,18 +1602,16 @@ body[data-invited="1"] .create-only { display: none !important; }
         word: c.w, pos: c.pos, meaning: c.meaning,
         who: !c.by ? "Starting word" : onName(c.by) + (c.unchecked ? " · not checked, dictionary offline" : "")
       })));
-      $("#wordInput").maxLength = onWord().length;
-      $("#wordInput").value = "";
-      renderPreview("");
+      editorReset(onWord());
     }
     // Whose turn
     const mine = onMyTurn();
     $("#turnName").textContent = s.status === "done" ? onName(s.winner) + " wins"
       : curUid === ON.uid ? "Your turn" : onName(curUid);
     const showForm = s.status === "playing" && curUid === ON.uid && !out[ON.uid];
-    $("#playForm").hidden = !showForm;
+    $("#playArea").hidden = !showForm;
     $(".giveup-row").hidden = !showForm;
-    $("#playBtn").disabled = !mine || ON.busy;
+    renderEditor();
     const note = $("#waitNote");
     note.hidden = showForm && !s.checking;
     note.replaceChildren();
@@ -1576,10 +1632,9 @@ body[data-invited="1"] .create-only { display: none !important; }
       ON.turnKey = turnKey;
       if (mine) {
         setMsg("");
-        $("#wordInput").value = ""; renderPreview("");
+        editorReset(onWord());
         beep(523, .1); setTimeout(() => beep(784, .14), 110);
         try { navigator.vibrate && navigator.vibrate(200); } catch (e) {}
-        setTimeout(() => $("#wordInput").focus(), 50);
       }
     }
     if (s.status === "playing") onlineTick();
@@ -1616,7 +1671,7 @@ body[data-invited="1"] .create-only { display: none !important; }
     else if (ev.type === "reject" && !me) toast(onName(ev.uid) + " tried " + ev.w + ", but it isn't in the dictionary.");
     else if (ev.type === "out") {
       if (s.status !== "done") sfx.out();
-      toast(me ? "You " + ev.reason + ", so you're out." : onName(ev.uid) + " " + ev.reason + " and is out.");
+      toast(me ? "You " + ev.reason + ", so you're out." : onName(ev.uid) + " " + ev.reason + ". " + onName(ev.uid) + " is out.");
     }
   }
 
