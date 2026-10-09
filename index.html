@@ -263,6 +263,13 @@ body[data-invited="1"] .create-only { display: none !important; }
 .lobby-players .av { width: 30px; height: 30px; border-radius: 50%; display: grid; place-items: center; background: var(--tile); color: var(--tile-ink); font: 800 .85rem var(--display); flex: none; }
 .lobby-players .nm { font-weight: 700; flex: 1; min-width: 0; overflow-wrap: anywhere; }
 .lobby-players .tag { font-size: .78rem; color: var(--muted); }
+.lobby-players li.empty { background: transparent; border: 2px dashed var(--line); color: var(--muted); }
+.lobby-players li.empty .av { background: transparent; border: 2px dashed var(--line); color: var(--muted); }
+.lobby-players li.empty .nm { font-weight: 400; display: flex; align-items: center; gap: 8px; }
+.lobby-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 12px; }
+.lobby-head .lobby-sub { margin: 0; }
+.stepper.small button { width: 36px; height: 36px; font-size: 1.1rem; }
+.stepper.small output { min-width: 32px; font-size: 1rem; }
 .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--go); flex: none; }
 .dot.off { background: var(--line); }
 .lobby-actions { display: flex; gap: 10px; flex-wrap: wrap; }
@@ -326,14 +333,15 @@ body[data-invited="1"] .create-only { display: none !important; }
 
       <p class="divider online-only create-only" id="orNew"><span>or start a new game</span></p>
 
-      <div class="field local-only" id="playersField">
+      <div class="field create-only" id="playersField">
         <span class="label" id="countLabel">Players</span>
         <div class="stepper" role="group" aria-labelledby="countLabel">
           <button type="button" id="countMinus" aria-label="Fewer players">−</button>
           <output id="countOut">4</output>
           <button type="button" id="countPlus" aria-label="More players">+</button>
         </div>
-        <div class="names" id="names"></div>
+        <div class="names local-only" id="names"></div>
+        <p class="hint online-only">Including you. Everyone has to join before you can start.</p>
       </div>
 
       <div class="field create-only">
@@ -397,7 +405,14 @@ body[data-invited="1"] .create-only { display: none !important; }
       <p class="hint" id="lobbySettings"></p>
     </div>
     <div class="panel">
-      <h3 class="lobby-sub">Players <span id="lobbyCount"></span></h3>
+      <div class="lobby-head">
+        <h3 class="lobby-sub">Players <span id="lobbyCount"></span></h3>
+        <div class="stepper small" id="seatStepper" role="group" aria-label="Number of players">
+          <button type="button" id="seatMinus" aria-label="Fewer players">−</button>
+          <output id="seatOut">2</output>
+          <button type="button" id="seatPlus" aria-label="More players">+</button>
+        </div>
+      </div>
       <ul class="lobby-players" id="lobbyPlayers"></ul>
       <p class="err" id="lobbyErr" role="alert"></p>
       <div class="lobby-actions">
@@ -1179,6 +1194,8 @@ body[data-invited="1"] .create-only { display: none !important; }
   const CODE_CHARS = "ABCDEFGHJKMNPQRSTUVWXYZ23456789";
   const GRACE = 1200;                 // ms after the deadline before any phone may end the turn
   const CHECK_LIMIT = 12000;          // ms a dictionary check may hold the clock
+  const AWAY_LIMIT = 15000;           // ms a player may be offline mid-game before they count as having left
+  const awaySince = {};               // uid -> when this phone first saw them offline
   const codeClean = s => (s || "").toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 6);
   const store = {
     get(k) { try { return localStorage.getItem(k); } catch (e) { return null; } },
@@ -1254,7 +1271,7 @@ body[data-invited="1"] .create-only { display: none !important; }
         host: ON.uid, createdAt: TS(),
         settings: { timer: cfg.timer, start: w, judge: cfg.judge === "trust" ? "trust" : "dict" },
         players: { [ON.uid]: { name, joinedAt: TS() } },
-        state: { status: "lobby" }
+        state: { status: "lobby", seats: cfg.count }
       });
       track("online_game_create", { turn_seconds: cfg.timer, word_check: cfg.judge });
       enterRoom(code);
@@ -1283,7 +1300,8 @@ body[data-invited="1"] .create-only { display: none !important; }
       }
       if (auto) return;                           // a fresh visitor still has to type a name
       if ((room.state || {}).status !== "lobby") { err.textContent = "That game has already started. Ask the host to invite you to the next one."; return; }
-      if (Object.keys(players).length >= 8) { err.textContent = "That game is full. It already has 8 players."; return; }
+      const seats = ((room.state || {}).seats) || 8;
+      if (Object.keys(players).length >= seats) { err.textContent = "That game is full. It's set up for " + seats + " players. Ask the host to add a spot for you."; return; }
       await ON.db.ref("rooms/" + code + "/players/" + ON.uid).set({ name, joinedAt: TS() });
       track("online_game_join");
       enterRoom(code);
@@ -1401,9 +1419,12 @@ body[data-invited="1"] .create-only { display: none !important; }
   /* --- actions --- */
   async function onlineStart() {
     const r = ON.room, pres = r.presence || {};
-    const ids = Object.keys(r.players || {}).filter(u => pres[u])
-      .sort((a, b) => r.players[a].joinedAt - r.players[b].joinedAt).slice(0, 8);
-    if (ids.length < 2) { $("#lobbyErr").textContent = "You need at least 2 players online to start."; return; }
+    const seats = lobbySeats(r);
+    const ids = Object.keys(r.players || {})
+      .sort((a, b) => r.players[a].joinedAt - r.players[b].joinedAt).slice(0, seats);
+    if (ids.length < seats) { $("#lobbyErr").textContent = "Wait until all " + seats + " players have joined."; return; }
+    if (ids.some(u => !pres[u])) { $("#lobbyErr").textContent = "Wait until everyone is back online."; return; }
+    $("#lobbyErr").textContent = "";
     const done = busy($("#startOnline"), "Starting…");
     try {
       await ON.ref.child("state").set({
@@ -1420,7 +1441,7 @@ body[data-invited="1"] .create-only { display: none !important; }
   async function onlineRematch() {
     const r = ON.room, len = r.settings.start.length;
     const next = STARTERS[len] ? pick(STARTERS[len].filter(x => x !== r.settings.start)) : r.settings.start;
-    try { await ON.ref.update({ "settings/start": next, state: { status: "lobby" } }); }
+    try { await ON.ref.update({ "settings/start": next, state: { status: "lobby", seats: Math.max(2, (r.state && r.state.order || []).length || lobbySeats(r)) } }); }
     catch (e) { console.error(e); toast("Couldn't start a rematch. Try again."); }
   }
 
@@ -1500,6 +1521,14 @@ body[data-invited="1"] .create-only { display: none !important; }
   function onlineTick() {
     const s = onState();
     if (!ON.room || s.status !== "playing") return;
+    const pres = ON.room.presence || {};
+    (s.order || []).forEach(u => {
+      if (u === ON.uid || (s.out || {})[u] || pres[u]) { delete awaySince[u]; return; }
+      awaySince[u] = awaySince[u] || Date.now();
+      if (Date.now() - awaySince[u] > AWAY_LIMIT) {
+        claim("left:" + u, st => (st.status === "playing" && !(st.out || {})[u]) ? eliminateIn(st, u, "left the game") : undefined);
+      }
+    });
     const total = timerMs();
     let rem, running;
     if (s.checking) {
@@ -1557,6 +1586,7 @@ body[data-invited="1"] .create-only { display: none !important; }
       (st.judge === "trust" ? "no word checks" : "the dictionary checks every word");
     const pres = r.presence || {};
     const ids = Object.keys(r.players || {}).sort((a, b) => r.players[a].joinedAt - r.players[b].joinedAt);
+    const seats = lobbySeats(r);
     const list = $("#lobbyPlayers");
     list.innerHTML = "";
     ids.forEach(u => {
@@ -1569,14 +1599,34 @@ body[data-invited="1"] .create-only { display: none !important; }
       if (!pres[u]) { const t = document.createElement("span"); t.className = "tag"; t.textContent = "Offline"; li.appendChild(t); }
       list.appendChild(li);
     });
-    $("#lobbyCount").textContent = "(" + ids.length + " of 8)";
+    // Empty spots for players who haven't joined yet
+    for (let k = ids.length; k < seats; k++) {
+      const li = document.createElement("li");
+      li.className = "empty";
+      const av = document.createElement("span"); av.className = "av"; av.textContent = String(k + 1);
+      const nm = document.createElement("span"); nm.className = "nm";
+      const dots = document.createElement("span"); dots.className = "dots"; dots.innerHTML = "<span></span><span></span><span></span>";
+      nm.append(dots, document.createTextNode("Waiting for player " + (k + 1) + "…"));
+      li.append(av, nm);
+      list.appendChild(li);
+    }
+    $("#lobbyCount").textContent = "(" + Math.min(ids.length, seats) + " of " + seats + " joined)";
     const isHost = r.host === ON.uid;
-    const online = ids.filter(u => pres[u]).length;
+    const missing = Math.max(0, seats - ids.length);
+    const away = ids.slice(0, seats).filter(u => !pres[u]).map(onName);
+    const ready = missing === 0 && away.length === 0;
+    $("#seatStepper").hidden = !isHost;
+    $("#seatOut").textContent = seats;
+    $("#seatMinus").disabled = seats <= Math.max(2, ids.length);
+    $("#seatPlus").disabled = seats >= 8;
     $("#startOnline").hidden = !isHost;
-    $("#startOnline").disabled = online < 2;
+    $("#startOnline").disabled = !ready;
+    if (ready) $("#lobbyErr").textContent = "";
+    const waitingFor = missing ? "Waiting for " + missing + " more " + (missing === 1 ? "player" : "players") + " to join."
+      : away.length ? "Waiting for " + away.join(" and ") + " to come back online." : "";
     $("#lobbyWait").textContent = isHost
-      ? (online < 2 ? "Send the link to at least one friend. You can start once they join." : "Everyone here? Tap Start game.")
-      : "Waiting for " + onName(r.host) + " to start the game.";
+      ? (waitingFor ? waitingFor + (missing ? " Share the link above." : "") : "Everyone's here. Tap Start game.")
+      : (waitingFor || "Everyone's here. Waiting for " + onName(r.host) + " to start the game.");
   }
 
   function renderOnGame(r, s) {
@@ -1591,7 +1641,7 @@ body[data-invited="1"] .create-only { display: none !important; }
       c.className = "pchip" + (out[u] ? " out" : "") + (u === curUid && !out[u] && s.status === "playing" ? " now" : "");
       const av = document.createElement("span"); av.className = "av"; av.textContent = onName(u)[0].toUpperCase();
       const nm = document.createElement("span"); nm.textContent = onName(u) + (u === ON.uid ? " (you)" : "");
-      const ct = document.createElement("span"); ct.className = "ct"; ct.textContent = out[u] ? "out" : words + (words === 1 ? " word" : " words");
+      const ct = document.createElement("span"); ct.className = "ct"; ct.textContent = out[u] ? (out[u] === "left the game" ? "left" : "out") : words + (words === 1 ? " word" : " words");
       c.append(av, nm, ct);
       if (!pres[u] && !out[u]) { const t = document.createElement("span"); t.className = "off-tag"; t.textContent = "offline"; c.appendChild(t); }
       strip.appendChild(c);
@@ -1674,7 +1724,11 @@ body[data-invited="1"] .create-only { display: none !important; }
     else if (ev.type === "reject" && !me) toast(onName(ev.uid) + " tried " + ev.w + ", but it isn't in the dictionary.");
     else if (ev.type === "out") {
       if (s.status !== "done") sfx.out();
-      let msg = me ? "You " + ev.reason + ", so you're out." : onName(ev.uid) + " " + ev.reason + ". " + onName(ev.uid) + " is out.";
+      const nowUid = (s.order || [])[s.turn];
+      let msg = me ? "You " + ev.reason + ", so you're out."
+        : ev.reason === "left the game"
+          ? onName(ev.uid) + " left the game." + (s.status === "playing" && !ev.final ? (nowUid === ON.uid ? " It's your turn." : " It's " + onName(nowUid) + "'s turn.") : "")
+          : onName(ev.uid) + " " + ev.reason + ". " + onName(ev.uid) + " is out.";
       if (ev.final) msg += ev.final === ON.uid ? " Play one real word to win!" : " " + onName(ev.final) + " needs one real word to win.";
       toast(msg);
     }
@@ -1693,6 +1747,21 @@ body[data-invited="1"] .create-only { display: none !important; }
   $("#joinBtn").addEventListener("click", () => onlineJoin($("#joinCode").value));
   $("#joinCode").addEventListener("input", e => { e.target.value = codeClean(e.target.value); });
   $("#joinCode").addEventListener("keydown", e => { if (e.key === "Enter") onlineJoin(e.target.value); });
+  // Number of players the host chose; older games without it fall back to everyone who joined (at least 2)
+  function lobbySeats(r) {
+    const st = (r && r.state) || {};
+    return st.seats || Math.max(2, Object.keys((r && r.players) || {}).length);
+  }
+  async function setSeats(delta) {
+    const r = ON.room;
+    if (!r || r.host !== ON.uid) return;
+    const joined = Object.keys(r.players || {}).length;
+    const next = Math.min(8, Math.max(2, joined, lobbySeats(r) + delta));
+    try { await ON.ref.child("state/seats").set(next); }
+    catch (e) { console.error(e); $("#lobbyErr").textContent = "Couldn't change the number of players. Try again."; }
+  }
+  $("#seatMinus").addEventListener("click", () => setSeats(-1));
+  $("#seatPlus").addEventListener("click", () => setSeats(1));
   $("#startOnline").addEventListener("click", onlineStart);
   $("#waLink").addEventListener("click", () => track("invite_share", { method: "whatsapp" }));
   $("#leaveLobby").addEventListener("click", onlineLeave);
