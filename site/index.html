@@ -137,9 +137,9 @@ button { cursor: pointer; }
 .rules li::marker { font-weight: 800; color: var(--go); }
 
 /* Tiles */
-.tiles { display: flex; gap: clamp(4px, 1.5vw, 10px); justify-content: center; flex-wrap: nowrap; }
+.tiles { display: flex; gap: clamp(4px, 1.5vw, 10px); justify-content: center; flex-wrap: nowrap; max-width: 100%; min-width: 0; }
 .tile {
-  width: clamp(2.6rem, 13vw, 4.2rem); aspect-ratio: 1 / 1.05; max-width: 100%;
+  width: clamp(2.6rem, 13vw, 4.2rem); aspect-ratio: 1 / 1.05; max-width: 100%; flex: 0 1 auto; min-width: 0; /* shrink to fit long words */
   display: grid; place-items: center; border-radius: 10px;
   background: var(--tile); color: var(--tile-ink);
   box-shadow: inset 0 -5px 0 var(--tile-edge), 0 2px 0 rgba(0,0,0,.08);
@@ -204,6 +204,9 @@ button { cursor: pointer; }
 .stage.low .timer .prog { stroke: var(--stop); }
 .stage.low .timer .secs { color: var(--stop); }
 .stage.paused .timer { opacity: .5; }
+.nudge { margin: -6px 0 0; min-height: 1.5em; font: 700 1.05rem var(--display); color: var(--muted); }
+.nudge.pop { animation: pop .35s ease; }
+.stage.low .nudge { color: var(--stop); }
 .playform { display: flex; gap: 8px; width: 100%; max-width: 420px; flex-wrap: wrap; justify-content: center; }
 .playform input {
   flex: 1 1 180px; min-width: 0; padding: 12px 14px; border-radius: 10px;
@@ -277,6 +280,20 @@ body[data-invited="1"] .create-only { display: none !important; }
 .lobby-sub { font: 800 1.05rem var(--display); margin: 0 0 12px; }
 .lobby-sub span { font: 400 .85rem var(--body); color: var(--muted); }
 .lobby-players { list-style: none; margin: 0 0 16px; padding: 0; display: grid; gap: 8px; }
+/* Wins leaderboard and the rematch word-length picker */
+.endextra { display: grid; gap: 14px; width: 100%; }
+.board { display: grid; gap: 6px; width: 100%; text-align: left; }
+.board .board-title { margin: 0; font-size: .75rem; letter-spacing: .1em; text-transform: uppercase; font-weight: 700; color: var(--muted); }
+.board ol { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; }
+.board li { display: flex; align-items: center; gap: 10px; padding: 7px 12px; border-radius: 8px; background: var(--bg); }
+.board li .rank { width: 1.4em; font-weight: 800; color: var(--muted); font-variant-numeric: tabular-nums; }
+.board li .who { flex: 1; min-width: 0; font-weight: 700; overflow-wrap: anywhere; }
+.board li .n { font-variant-numeric: tabular-nums; white-space: nowrap; }
+.board li.lead { background: var(--tile); color: var(--tile-ink); }
+.board li.lead .rank { color: var(--tile-ink); }
+.lenpick { display: grid; gap: 8px; justify-items: center; }
+.lenpick .chips { justify-content: center; }
+.pchip .wins { font-size: .8rem; font-weight: 700; }
 .lobby-players li { display: flex; align-items: center; gap: 10px; padding: 8px 10px; border-radius: 10px; background: var(--bg); }
 .lobby-players .av { width: 30px; height: 30px; border-radius: 50%; display: grid; place-items: center; background: var(--tile); color: var(--tile-ink); font: 800 .85rem var(--display); flex: none; }
 .lobby-players .nm { font-weight: 700; flex: 1; min-width: 0; overflow-wrap: anywhere; }
@@ -424,6 +441,7 @@ body[data-invited="1"] .create-only { display: none !important; }
         <a class="btn go" id="waLink" href="#" target="_blank" rel="noopener">Share on WhatsApp</a>
       </div>
       <p class="hint" id="lobbySettings"></p>
+      <div id="lobbyBoard" class="board-slot"></div>
     </div>
     <div class="panel">
       <div class="lobby-head">
@@ -460,6 +478,7 @@ body[data-invited="1"] .create-only { display: none !important; }
         </svg>
         <div class="secs" id="secs">60</div>
       </div>
+      <p class="nudge" id="nudge" aria-live="polite"></p>
       <div style="display:grid;gap:8px;width:100%">
         <span class="eyebrow">Current word</span>
         <div class="tiles" id="currentTiles"></div>
@@ -498,8 +517,9 @@ body[data-invited="1"] .create-only { display: none !important; }
   const $ = s => document.querySelector(s);
   const STARTERS = {
     3: ["CAT","HOT","PIN","BAT","DOG","MAN","RED","SUN","TOP","BIG","PET","CUP","HAT","LOG","FAN"],
-    4: ["HELL","BELL","CARE","MILE","LOVE","COLD","PORT","LAND","SAND","HATE","MINE","FAST","WORD","GAME","BAKE","TALE","LINE","HOME","RICE","PALE"],
-    5: ["SHORE","STONE","GRAPE","SLATE","CRANE","BRAIN","PLANT","TRAIN","SHINE","CLOCK","BREAD","SPARE","BLAME","STEAM","CHART"]
+    4: ("BAKE BALL BAND BANK BARK BEAR BEAT BELL BEST BIKE BIRD BOAT BOLD BONE BOOK BOOT CAKE CAME CARD CARE CART CASE CAST COAT COLD CORN COST DARK DEAR DEEP DOLL DOOR DUCK FACE FALL FARM FAST FEEL FILL FINE FIRE FISH FOOD FOOT FORM GAME GATE GOLD GOOD HAIR HALL HAND HARD HATE HEAT HELL HILL HOLD HOME HOPE HOST JUMP KIND KING LAKE LAMP LAND LANE LAST LATE LEAF LIFE LINE LION LOCK LONG LOOK LOVE MAKE MILE MILK MIND MINE MOON MORE NAME NEST NICE NOSE PALE PARK PART PEAR PINK PLAN POLE POOL PORT RAIN RICE RIDE RING ROAD ROCK ROSE SAFE SALT SAND SEAT SHIP SHOP SING SLOW SNOW SOCK SOFT SONG SOUP STAR TAIL TALE TALK TALL TEAM TENT TIME TOWN TREE WALK WALL WARM WAVE WEEK WELL WIND WING WISH WOOD WORD WORK YARD").split(" "),
+    5: ["SHORE","STONE","GRAPE","SLATE","CRANE","BRAIN","PLANT","TRAIN","SHINE","CLOCK","BREAD","SPARE","BLAME","STEAM","CHART"],
+    6: ("BATTER BETTER BITTER BUTTER MATTER LETTER LATTER HATTER RATTLE BATTLE CATTLE SETTLE BOTTLE MOTHER BOTHER FOLDER HOLDER COLDER BOLDER SINGER RINGER FINGER LINGER HUNGER BANNER MANNER DINNER WINNER TICKET POCKET ROCKET LOCKET JACKET RACKET BUCKET HAMMER SUMMER SIMMER MILLER FILLER KILLER CANDLE HANDLE SADDLE PADDLE MIDDLE RIDDLE PEPPER COPPER HOPPER").split(" ")
   };
   const TIMERS = [15, 30, 45, 60, 90, 120];
   const C = 276.46;
@@ -679,7 +699,7 @@ body[data-invited="1"] .create-only { display: none !important; }
     renderChips($("#timerChips"), TIMERS, cfg.timer, fmtTime, v => { cfg.timer = v; renderTimer(); });
   }
   function renderLen() {
-    renderChips($("#lenChips"), [3, 4, 5], cfg.start.length, v => v + " letters", v => setStart(pick(STARTERS[v])));
+    renderChips($("#lenChips"), [3, 4, 5, 6], cfg.start.length, v => v + " letters", v => setStart(pick(STARTERS[v])));
   }
   function setStart(w) {
     cfg.start = w;
@@ -830,9 +850,9 @@ body[data-invited="1"] .create-only { display: none !important; }
   });
 
   /* ---------- game ---------- */
-  function newGame(players, start) {
+  function newGame(players, start, games = 1) {
     G = {
-      players, start,
+      players, start, games,
       chain: [{ word: start, by: -1 }],
       used: new Set([start]),
       turn: 0,
@@ -883,6 +903,7 @@ body[data-invited="1"] .create-only { display: none !important; }
       const nm = document.createElement("span"); nm.textContent = p.name;
       const ct = document.createElement("span"); ct.className = "ct"; ct.textContent = p.out ? "out" : p.words + (p.words === 1 ? " word" : " words");
       c.append(av, nm, ct);
+      if (p.wins) { const w = document.createElement("span"); w.className = "wins"; w.textContent = "🏆" + p.wins; c.appendChild(w); }
       box.appendChild(c);
     });
   }
@@ -930,8 +951,34 @@ body[data-invited="1"] .create-only { display: none !important; }
 
   /* ---------- timer ---------- */
   let lastSecShown = null;
+  // Messages that get more urgent as the clock runs down (stage 0 = plenty of time, no message)
+  const NUDGES = [
+    [],
+    ["Think harder 🤔", "Hmm… 🧐", "Any letter will do 🔤", "Brain loading… ⏳", "You've got this 💪"],
+    ["Tick tock ⏰", "Clock's ticking ⌛", "Come on, you know this 😅", "The pressure is on 😬", "Think faster! 🧠"],
+    ["Hurry! 😱", "Quick, quick! 🏃", "Last seconds! 🔥", "Now or never 🫣", "Go go go! 🚨"]
+  ];
+  let nudgeShown = "";
+  function paintNudge(rem, total, running) {
+    const f = rem / total;
+    const stage = !running ? 0 : f > .6 ? 0 : f > .35 ? 1 : f > .15 ? 2 : 3;
+    const pool = NUDGES[stage];
+    // Same message for the whole stage of a turn, but different from turn to turn
+    let word = "";
+    try { word = current() || ""; } catch (e) {}
+    let seed = word.length * 7;
+    for (const ch of word) seed += ch.charCodeAt(0);
+    const text = pool.length ? pool[seed % pool.length] : "";
+    if (text === nudgeShown) return;
+    nudgeShown = text;
+    const el = $("#nudge");
+    el.textContent = text;
+    el.classList.remove("pop"); void el.offsetWidth; if (text) el.classList.add("pop");
+  }
+
   function paintClock(rem, total, running, ticks) {
     rem = Math.max(0, Math.min(rem, total));
+    paintNudge(rem, total, running);
     const secs = Math.ceil(rem / 1000);
     $("#secs").textContent = secs;
     $("#ring").setAttribute("stroke-dashoffset", (C * (1 - rem / total)).toFixed(2));
@@ -1145,6 +1192,43 @@ body[data-invited="1"] .create-only { display: none !important; }
     });
   }
 
+  // rows: [[name, wins], ...]; nothing to show until someone has won a game
+  function winsBoard(rows, games) {
+    const top = Math.max(0, ...rows.map(r => r[1]));
+    if (!top) return null;
+    const box = document.createElement("div"); box.className = "board";
+    const t = document.createElement("p"); t.className = "board-title";
+    t.textContent = "Leaderboard" + (games > 1 ? " · after " + games + " games" : "");
+    const ol = document.createElement("ol");
+    [...rows].sort((a, b) => b[1] - a[1]).forEach((r, i) => {
+      const li = document.createElement("li");
+      if (r[1] === top) li.className = "lead";
+      const rank = document.createElement("span"); rank.className = "rank"; rank.textContent = i + 1;
+      const who = document.createElement("span"); who.className = "who"; who.textContent = r[0];
+      const num = document.createElement("span"); num.className = "n"; num.textContent = "🏆 " + r[1] + (r[1] === 1 ? " win" : " wins");
+      li.append(rank, who, num);
+      ol.appendChild(li);
+    });
+    box.append(t, ol);
+    return box;
+  }
+  // Word-length buttons for the next game; calls onPick(len)
+  function lenPicker(current, onPick) {
+    const box = document.createElement("div"); box.className = "lenpick";
+    const t = document.createElement("p"); t.className = "board-title"; t.style.margin = "0";
+    t.textContent = "Next game's word";
+    const chips = document.createElement("div"); chips.className = "chips";
+    const paint = cur => renderChips(chips, [3, 4, 5, 6], cur, v => v + " letters", v => { onPick(v); paint(v); });
+    paint(current);
+    box.append(t, chips);
+    return box;
+  }
+  const randomStart = (len, not) => {
+    const list = STARTERS[len] || STARTERS[4];
+    const options = list.filter(x => x !== not);
+    return pick(options.length ? options : list);
+  };
+
   // counts: [[name, wordsPlayed], ...]
   function gameSummary(start, end, played, counts) {
     if (played === 0) return "Nobody played a word after " + start + ".";
@@ -1158,6 +1242,12 @@ body[data-invited="1"] .create-only { display: none !important; }
 
   function finish() {
     const winner = alive()[0];
+    if (winner) winner.wins = (winner.wins || 0) + 1;
+    let nextLen = G.start.length;
+    const extra = document.createElement("div"); extra.className = "endextra";
+    const board = winsBoard(G.players.map(p => [p.name, p.wins || 0]), G.games);
+    if (board) extra.appendChild(board);
+    extra.appendChild(lenPicker(nextLen, v => { nextLen = v; }));
     track("game_over", { mode: "one_phone", players: G.players.length, words_played: G.chain.length - 1, result: winner ? "win" : "draw" });
     if (winner) G.turn = G.players.indexOf(winner);
     renderPlayers();
@@ -1168,13 +1258,12 @@ body[data-invited="1"] .create-only { display: none !important; }
       title: winner ? winner.name + " wins!" : "Nobody wins",
       body: gameSummary(G.start, current(), G.chain.length - 1, G.players.map(p => [p.name, p.words])),
       word: current(),
+      extra,
       actions: [
         { label: "New setup", kind: "quiet", run: () => { hideSheet(); toSetup(); } },
         { label: "Rematch", kind: "go", run: () => {
           hideSheet();
-          const len = G.start.length;
-          const next = STARTERS[len] ? pick(STARTERS[len].filter(x => x !== G.start)) : G.start;
-          newGame(G.players.map(p => ({ name: p.name, out: false, words: 0 })), next);
+          newGame(G.players.map(p => ({ name: p.name, out: false, words: 0, wins: p.wins || 0 })), randomStart(nextLen, G.start), G.games + 1);
         } }
       ]
     });
@@ -1414,6 +1503,7 @@ body[data-invited="1"] .create-only { display: none !important; }
       // Game over: the survivor wins, or nobody does if the final turn failed
       s.status = "done"; s.winner = survivorPlayed ? survivor : null;
       s.deadline = null; s.checking = null; s.pausedRemaining = null;
+      if (s.winner) { s.wins = s.wins || {}; s.wins[s.winner] = (s.wins[s.winner] || 0) + 1; }
     } else if (survivor) {
       // Last player left hasn't played yet: one real word wins
       s.final = survivor;
@@ -1458,17 +1548,24 @@ body[data-invited="1"] .create-only { display: none !important; }
         status: "playing", order: ids, turn: 0,
         deadline: serverNow() + r.settings.timer * 1000 + 3000,   // 3 seconds to get ready
         chain: [{ w: r.settings.start, by: "" }],
-        event: { id: rid(), type: "start" }
+        event: { id: rid(), type: "start" },
+        wins: (r.state && r.state.wins) || null,
+        games: ((r.state && r.state.games) || 0) + 1
       });
       track("game_start", { mode: "online", players: ids.length, turn_seconds: r.settings.timer, word_check: r.settings.judge });
     } catch (e) { console.error(e); $("#lobbyErr").textContent = "Couldn't start the game. Try again."; }
     finally { done(); }
   }
 
-  async function onlineRematch() {
-    const r = ON.room, len = r.settings.start.length;
-    const next = STARTERS[len] ? pick(STARTERS[len].filter(x => x !== r.settings.start)) : r.settings.start;
-    try { await ON.ref.update({ "settings/start": next, state: { status: "lobby", seats: Math.max(2, (r.state && r.state.order || []).length || lobbySeats(r)) } }); }
+  async function onlineRematch(len) {
+    const r = ON.room, st = r.state || {};
+    const next = randomStart(len || r.settings.start.length, r.settings.start);
+    try {
+      await ON.ref.update({
+        "settings/start": next,
+        state: { status: "lobby", seats: Math.max(2, (st.order || []).length || lobbySeats(r)), wins: st.wins || null, games: st.games || null }
+      });
+    }
     catch (e) { console.error(e); toast("Couldn't start a rematch. Try again."); }
   }
 
@@ -1483,7 +1580,11 @@ body[data-invited="1"] .create-only { display: none !important; }
       s.chain = chain;
       s.checking = null; s.pausedRemaining = null;
       s.event = { id: rid(), type: "word", uid: ON.uid, w, meaning: (res && res.meaning) || "" };
-      if (s.final) { s.status = "done"; s.winner = ON.uid; s.deadline = null; return s; }   // final turn passed: win
+      if (s.final) {                                        // final turn passed: win
+        s.status = "done"; s.winner = ON.uid; s.deadline = null;
+        s.wins = s.wins || {}; s.wins[ON.uid] = (s.wins[ON.uid] || 0) + 1;
+        return s;
+      }
       s.turn = nextIdx(s, s.turn);
       s.deadline = serverNow() + timerMs();
       return s;
@@ -1650,6 +1751,9 @@ body[data-invited="1"] .create-only { display: none !important; }
     $("#inviteLink").value = link;
     $("#waLink").href = "https://wa.me/?text=" + encodeURIComponent("Join my Wordpie game: " + link);
     const st = r.settings || {};
+    const lst = r.state || {};
+    const lboard = winsBoard(Object.keys(r.players || {}).map(u => [onName(u), (lst.wins || {})[u] || 0]), lst.games || 0);
+    $("#lobbyBoard").replaceChildren(...(lboard ? [lboard] : []));
     $("#lobbySettings").textContent = fmtTime(st.timer || 60) + " per turn · starts from " + (st.start || "") + " · " +
       (st.judge === "trust" ? "no word checks" : "the dictionary checks every word");
     const pres = r.presence || {};
@@ -1720,6 +1824,8 @@ body[data-invited="1"] .create-only { display: none !important; }
       const nm = document.createElement("span"); nm.textContent = onName(u) + (u === ON.uid ? " (you)" : "");
       const ct = document.createElement("span"); ct.className = "ct"; ct.textContent = out[u] ? (out[u] === "left the game" ? "left" : "out") : words + (words === 1 ? " word" : " words");
       c.append(av, nm, ct);
+      const wn = (s.wins || {})[u];
+      if (wn) { const w = document.createElement("span"); w.className = "wins"; w.textContent = "🏆" + wn; c.appendChild(w); }
       if (!pres[u] && !out[u]) { const t = document.createElement("span"); t.className = "off-tag"; t.textContent = "offline"; c.appendChild(t); }
       strip.appendChild(c);
     });
@@ -1773,6 +1879,7 @@ body[data-invited="1"] .create-only { display: none !important; }
     if (s.status === "done" && ON.sheet !== "done") {
       ON.sheet = "done";
       const isHost = r.host === ON.uid, won = s.winner === ON.uid;
+      ON.nextLen = (r.settings && r.settings.start || "").length || 4;
       if (isHost) track("game_over", { mode: "online", players: order.length, words_played: chain.length - 1, result: s.winner ? "win" : "draw" });
       if (won) sfx.win(); else sfx.out();
       const counts = order.map(u => [onName(u), chain.filter(c => c.by === u).length]);
@@ -1782,8 +1889,15 @@ body[data-invited="1"] .create-only { display: none !important; }
         title: won ? "You win!" : s.winner ? onName(s.winner) + " wins!" : "Nobody wins",
         body: gameSummary(chain[0].w, onWord(), chain.length - 1, counts) + (isHost ? "" : " Waiting for " + onName(r.host) + " to start a rematch."),
         word: onWord(),
+        extra: (() => {
+          const box = document.createElement("div"); box.className = "endextra";
+          const board = winsBoard(order.map(u => [onName(u), (s.wins || {})[u] || 0]), s.games || 1);
+          if (board) box.appendChild(board);
+          if (isHost) box.appendChild(lenPicker(ON.nextLen, v => { ON.nextLen = v; }));
+          return box.childNodes.length ? box : null;
+        })(),
         actions: isHost
-          ? [{ label: "Leave", kind: "quiet", run: () => onlineLeave() }, { label: "Play again", kind: "go", run: () => onlineRematch() }]
+          ? [{ label: "Leave", kind: "quiet", run: () => onlineLeave() }, { label: "Play again", kind: "go", run: () => onlineRematch(ON.nextLen) }]
           : [{ label: "Leave", kind: "quiet", run: () => onlineLeave() }]
       });
     }
