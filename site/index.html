@@ -292,6 +292,18 @@ body[data-invited="1"] .create-only { display: none !important; }
 body:not([data-mode="cpu"]) .cpu-only { display: none !important; }
 body[data-mode="cpu"] .not-cpu { display: none !important; }
 body[data-mode="cpu"] .field.cpu-show { display: grid !important; }
+body:not([data-mode="people"]) .people-only { display: none !important; }
+body[data-mode="people"] .not-people { display: none !important; }
+body[data-mode="people"] .field.people-show { display: grid !important; }
+/* Find players */
+#people { display: grid; gap: 20px; max-width: 680px; width: 100%; margin: 0 auto; }
+.people-head { display: grid; gap: 8px; text-align: center; justify-items: center; }
+.people-empty { display: grid; gap: 10px; justify-items: center; text-align: center; padding: 8px 0 16px; color: var(--muted); }
+.people-empty .actions { display: flex; gap: 8px; flex-wrap: wrap; justify-content: center; }
+.lobby-players .pbtn { border: 0; border-radius: 999px; padding: 6px 14px; font-size: .85rem; font-weight: 700; background: var(--go); color: #fff; }
+.lobby-players .pbtn.watch { background: transparent; color: var(--ink); border: 1px solid var(--line); }
+.lobby-players .pbtn:disabled { opacity: .4; cursor: not-allowed; }
+.lobby-players li.busy { opacity: .75; }
 
 .textin { width: 100%; border: 1px solid var(--line); background: var(--bg); border-radius: 8px; padding: 10px 12px; }
 .joinbox input { text-transform: uppercase; letter-spacing: .25em; font: 800 1.2rem var(--display); }
@@ -419,12 +431,12 @@ body[data-mode="cpu"] .field.cpu-show { display: grid !important; }
         <div class="chips" id="modeChips"></div>
       </div>
 
-      <div class="field online-only cpu-show" id="nameField">
+      <div class="field online-only cpu-show people-show" id="nameField">
         <label for="onlineName">Your name</label>
         <input id="onlineName" class="textin" maxlength="16" autocomplete="nickname" placeholder="e.g. Ada">
       </div>
 
-      <div class="field online-only joinbox" id="joinField">
+      <div class="field online-only joinbox not-people" id="joinField">
         <label for="joinCode">Have an invite code?</label>
         <div class="startword">
           <input id="joinCode" maxlength="6" autocomplete="off" spellcheck="false" autocapitalize="characters" placeholder="CODE">
@@ -434,7 +446,9 @@ body[data-mode="cpu"] .field.cpu-show { display: grid !important; }
         <button class="btn" type="button" id="watchBtn" hidden>👀 Watch this game instead</button>
       </div>
 
-      <p class="divider online-only create-only" id="orNew"><span>or start a new game</span></p>
+      <p class="divider online-only create-only not-people" id="orNew"><span>or start a new game</span></p>
+
+      <p class="hint people-only">Pick your game settings below. They're used for games you request.</p>
 
       <div class="field cpu-only">
         <span class="label">Computer level</span>
@@ -442,7 +456,7 @@ body[data-mode="cpu"] .field.cpu-show { display: grid !important; }
         <p class="hint" id="cpuHint"></p>
       </div>
 
-      <div class="field create-only not-cpu" id="playersField">
+      <div class="field create-only not-cpu not-people" id="playersField">
         <span class="label" id="countLabel">Players</span>
         <div class="stepper" role="group" aria-labelledby="countLabel">
           <button type="button" id="countMinus" aria-label="Fewer players">−</button>
@@ -496,6 +510,28 @@ body[data-mode="cpu"] .field.cpu-show { display: grid !important; }
         <div id="demoChain" style="display:grid;gap:6px"></div>
       </div>
     </aside>
+  </section>
+
+  <!-- FIND PLAYERS -->
+  <section id="people" hidden>
+    <div class="panel people-head">
+      <p class="eyebrow">Find players</p>
+      <h2 class="lobby-title">Players online</h2>
+      <p class="hint" id="peopleMe"></p>
+      <p class="err" id="peopleErr" role="alert"></p>
+    </div>
+    <div class="panel">
+      <h3 class="lobby-sub">Online now <span id="peopleCount"></span></h3>
+      <ul class="lobby-players" id="peopleList"></ul>
+      <div class="people-empty" id="peopleEmpty" hidden>
+        <p style="margin:0">No one else is online right now. Stay here and they'll appear, or:</p>
+        <div class="actions">
+          <button class="btn quiet" type="button" id="peopleFriends">Invite a friend</button>
+          <button class="btn quiet" type="button" id="peopleCpu">Play the computer</button>
+        </div>
+      </div>
+      <div class="lobby-actions"><button class="btn quiet" type="button" id="peopleOff">Go offline</button></div>
+    </div>
   </section>
 
   <!-- LOBBY (online) -->
@@ -1009,6 +1045,7 @@ body[data-mode="cpu"] .field.cpu-show { display: grid !important; }
 
   $("#startBtn").addEventListener("click", () => {
     if (mode === "online") { onlineCreate(); return; }
+    if (mode === "people") { goOnline(); return; }
     const w = clean(cfg.start);
     if (w.length < 3 || w.length > 6) {
       $("#setupErr").textContent = "The starting word needs 3 to 6 letters.";
@@ -1654,10 +1691,10 @@ body[data-mode="cpu"] .field.cpu-show { display: grid !important; }
   function setMode(m) {
     mode = m;
     document.body.dataset.mode = m;
-    const modes = ONLINE_OK ? ["local", "cpu", "online"] : ["local", "cpu"];
+    const modes = ONLINE_OK ? ["local", "cpu", "online", "people"] : ["local", "cpu"];
     renderChips($("#modeChips"), modes, m,
-      k => k === "local" ? "On one phone" : k === "cpu" ? "Vs computer" : "Online with friends", setMode);
-    $("#startBtn").textContent = m === "online" ? "Create game and get invite link" : m === "cpu" ? "Play against the computer" : "Start game";
+      k => k === "local" ? "On one phone" : k === "cpu" ? "Vs computer" : k === "people" ? "Find players" : "Online with friends", setMode);
+    $("#startBtn").textContent = m === "online" ? "Create game and get invite link" : m === "cpu" ? "Play against the computer" : m === "people" ? "Go online and find players" : "Start game";
     renderJudge();
     renderLevels();
   }
@@ -1852,6 +1889,15 @@ body[data-mode="cpu"] .field.cpu-show { display: grid !important; }
     $("#quitBtn").hidden = true; $("#playArea").hidden = false; $("#waitNote").hidden = true;
     $(".giveup-row").hidden = false;
     resetQuit();
+    if (PP.fromPeople) {                       // came from Find players: go back to the list
+      PP.fromPeople = false;
+      document.body.dataset.mode = "people";
+      if (PP.on) {
+        $("#setup").hidden = true; $("#people").hidden = false;
+        if (PP.meRef) PP.meRef.update({ status: "free", room: null }).catch(() => {});
+        renderPeople();
+      }
+    }
     if (note) toast(note);
   }
 
@@ -2205,6 +2251,7 @@ body[data-mode="cpu"] .field.cpu-show { display: grid !important; }
     $("#seatPlus").disabled = seats >= 8;
     $("#startOnline").hidden = !isHost;
     $("#startOnline").disabled = !ready;
+    if (lst.auto && isHost && ready && ON.autoStarted !== ON.code) { ON.autoStarted = ON.code; onlineStart(); }
     if (ready) $("#lobbyErr").textContent = "";
     const waitingFor = missing ? "Waiting for " + missing + " more " + (missing === 1 ? "player" : "players") + " to join."
       : away.length ? "Waiting for " + away.join(" and ") + " to come back online." : "";
@@ -2286,6 +2333,12 @@ body[data-mode="cpu"] .field.cpu-show { display: grid !important; }
       const isHost = r.host === ON.uid, won = s.winner === ON.uid;
       ON.nextLen = (r.settings && r.settings.start || "").length || 4;
       if (isHost) track("game_over", { mode: "online", players: order.length, words_played: chain.length - 1, result: s.winner ? "win" : "draw" });
+      const winKey = ON.code + ":" + (s.games || 1);
+      if (won && !ON.watching && store.get("wordpie.lastWin") !== winKey) {
+        store.set("wordpie.lastWin", winKey);
+        store.set("wordpie.onlineWins", String(myWins() + 1));
+        if (PP.meRef) PP.meRef.update({ wins: myWins() }).catch(() => {});
+      }
       if (won) sfx.win(); else sfx.out();
       const counts = order.map(u => [onName(u), chain.filter(c => c.by === u).length]);
       showSheet({
@@ -2399,6 +2452,246 @@ body[data-mode="cpu"] .field.cpu-show { display: grid !important; }
     catch (err) { link.select(); b.textContent = "Press Ctrl+C"; }
     setTimeout(() => { b.textContent = "Copy link"; }, 2000);
   });
+
+  /* ---------- find players: who's online, requests to play ---------- */
+  const PP = { on: false, meRef: null, handlers: [], list: {}, outgoing: null, blocked: new Set(), declines: 0, pauseUntil: 0,
+               fromPeople: false, showing: null, tick: 0 };
+  const REQUEST_MS = 20000;
+  const myWins = () => parseInt(store.get("wordpie.onlineWins") || "0", 10) || 0;
+  const myName = () => ($("#onlineName").value.trim() || store.get("wordpie.name") || "").slice(0, 16);
+  // Keeps rude names off the public list (letters only, common look-alikes folded in)
+  const BAD = ["fuck", "fuk", "shit", "bitch", "cunt", "nigg", "niga", "dick", "pussy", "whore", "slut", "rape", "porn", "penis", "vagina",
+               "asshole", "bastard", "wank", "twat", "motherf", "sex", "nude", "boob", "cock", "fag", "retard", "kill", "nazi", "hitler"];
+  function badName(name) {
+    const t = name.toLowerCase().replace(/[0@4]/g, m => ({ "0": "o", "@": "a", "4": "a" })[m]).replace(/[1!|]/g, "i")
+      .replace(/3/g, "e").replace(/[5$]/g, "s").replace(/7/g, "t").replace(/[^a-z]/g, "");
+    return BAD.some(w => t.includes(w));
+  }
+  function settingsText(x) {
+    return fmtTime(x.timer || 60) + " per turn · " + (x.len || 4) + "-letter words · " + (x.judge === "trust" ? "no word checks" : "dictionary checks");
+  }
+  function on(ref, fn) { ref.on("value", fn); PP.handlers.push([ref, fn]); }
+
+  async function goOnline() {
+    const err = $("#setupErr");
+    const name = needName(err); if (!name) return;
+    if (badName(name)) { err.textContent = "Please choose a different name. That one isn't allowed on the public list."; return; }
+    const w = clean(cfg.start);
+    if (w.length < 3 || w.length > 6) { err.textContent = "The starting word needs 3 to 6 letters."; return; }
+    const done = busy($("#startBtn"), "Going online…");
+    try {
+      await firebaseInit();
+      PP.on = true;
+      PP.meRef = ON.db.ref("online/" + ON.uid);
+      const conn = ON.db.ref(".info/connected");
+      on(conn, snap => {
+        if (!snap.val() || !PP.on) return;
+        PP.meRef.onDisconnect().remove();
+        PP.meRef.set({ name, wins: myWins(), status: ON.active ? "playing" : "free", room: ON.active ? ON.code : null, at: TS() })
+          .catch(e => { console.warn(e); $("#peopleErr").textContent = "Couldn't go online. Check the database rules are up to date."; });
+      });
+      on(ON.db.ref("online"), snap => { PP.list = snap.val() || {}; renderPeople(); });
+      on(ON.db.ref("requests/" + ON.uid), snap => handleIncoming(snap.val() || {}));
+      clearInterval(PP.tick); PP.tick = setInterval(renderPeople, 5000);   // keeps "online" fresh and stale entries hidden
+      $("#setup").hidden = true; $("#people").hidden = false;
+      track("people_online");
+      renderPeople();
+    } catch (e) {
+      console.error(e); PP.on = false;
+      err.textContent = "Couldn't go online. Check your internet connection and try again.";
+    } finally { done(); }
+  }
+  function goOffline() {
+    if (PP.outgoing) cancelRequest("");
+    PP.handlers.forEach(([ref, fn]) => ref.off("value", fn)); PP.handlers = [];
+    clearInterval(PP.tick);
+    if (PP.meRef) { PP.meRef.onDisconnect().cancel(); PP.meRef.remove().catch(() => {}); }
+    Object.assign(PP, { on: false, meRef: null, list: {}, showing: null });
+    $("#people").hidden = true; $("#setup").hidden = false;
+    if (ON.active === false) hideSheet();
+  }
+
+  function renderPeople() {
+    if (!PP.on) return;
+    const me = ON.uid, now = serverNow();
+    const others = Object.keys(PP.list).filter(u => u !== me && !PP.blocked.has(u))
+      .map(u => ({ u, ...PP.list[u] }))
+      .filter(p => p && typeof p.name === "string" && p.name && !badName(p.name))
+      .sort((a, b) => (a.status === "free" ? 0 : 1) - (b.status === "free" ? 0 : 1) || (b.at || 0) - (a.at || 0))
+      .slice(0, 40);
+    $("#peopleMe").textContent = "You're online as " + myName() + " · 🏆 " + myWins() + (myWins() === 1 ? " win" : " wins") +
+      " · Your game: " + settingsText({ timer: cfg.timer, len: clean(cfg.start).length, judge: cfg.judge });
+    $("#peopleCount").textContent = "(" + others.length + ")";
+    $("#peopleEmpty").hidden = others.length > 0;
+    const list = $("#peopleList");
+    list.innerHTML = "";
+    others.forEach(p => {
+      const free = p.status === "free";
+      const li = document.createElement("li");
+      if (!free) li.className = "busy";
+      const dot = document.createElement("span"); dot.className = "dot" + (free ? "" : " off");
+      const av = document.createElement("span"); av.className = "av"; av.textContent = p.name[0].toUpperCase();
+      const nm = document.createElement("span"); nm.className = "nm"; nm.textContent = p.name;
+      const wn = document.createElement("span"); wn.className = "tag"; wn.textContent = "🏆 " + (p.wins || 0);
+      li.append(dot, av, nm, wn);
+      const b = document.createElement("button"); b.type = "button"; b.className = "pbtn";
+      if (free) {
+        b.textContent = PP.outgoing && PP.outgoing.to === p.u ? "Waiting…" : "Request";
+        b.disabled = !!PP.outgoing;
+        b.addEventListener("click", () => sendRequest(p.u, p.name));
+      } else {
+        b.className = "pbtn watch"; b.textContent = p.room ? "👀 Watch" : "In a game";
+        b.disabled = !p.room;
+        b.addEventListener("click", () => { if (p.room) { PP.fromPeople = true; document.body.dataset.mode = "online"; $("#people").hidden = true; watchRoom(p.room); } });
+      }
+      li.appendChild(b);
+      list.appendChild(li);
+    });
+  }
+
+  /* --- sending a request --- */
+  async function sendRequest(to, toName) {
+    const err = $("#peopleErr");
+    if (PP.outgoing || ON.active) return;
+    if (Date.now() < PP.pauseUntil) { err.textContent = "A few requests were declined in a row. Wait a minute, then try again."; return; }
+    const start = clean(cfg.start);
+    if (start.length < 3 || start.length > 6) { err.textContent = "Your starting word needs 3 to 6 letters. Go offline to change it."; return; }
+    err.textContent = "";
+    const settings = { timer: cfg.timer, start, judge: cfg.judge === "trust" ? "trust" : "dict" };
+    try {
+      // The requester's game room is made first, with the requester as host; it starts by itself once both are in
+      let code = null;
+      for (let i = 0; i < 5 && !code; i++) {
+        let c = ""; for (let k = 0; k < 5; k++) c += CODE_CHARS[Math.floor(Math.random() * CODE_CHARS.length)];
+        if (!(await ON.db.ref("rooms/" + c + "/host").get()).exists()) code = c;
+      }
+      if (!code) throw new Error("No free room code");
+      await ON.db.ref("rooms/" + code).set({
+        host: ON.uid, createdAt: TS(), settings,
+        players: { [ON.uid]: { name: myName(), joinedAt: TS() } },
+        state: { status: "lobby", seats: 2, auto: true }
+      });
+      const reqRef = ON.db.ref("requests/" + to + "/" + ON.uid);
+      await reqRef.set({ name: myName(), wins: myWins(), room: code, timer: settings.timer, len: start.length, judge: settings.judge, at: TS() });
+      track("people_request");
+      const out = PP.outgoing = { to, toName, code, reqRef, until: Date.now() + REQUEST_MS, refs: [] };
+      // Accepted: they joined the room
+      const playersRef = ON.db.ref("rooms/" + code + "/players");
+      const onPlayers = snap => { if (PP.outgoing === out && Object.keys(snap.val() || {}).length >= 2) requestAccepted(out); };
+      playersRef.on("value", onPlayers); out.refs.push([playersRef, onPlayers]);
+      // Declined: the request vanished without them joining
+      const onReq = async snap => {
+        if (snap.exists() || PP.outgoing !== out) return;
+        const joined = Object.keys((await playersRef.get()).val() || {}).length >= 2;
+        if (joined) requestAccepted(out);
+        else if (PP.outgoing === out) cancelRequest(toName + " isn't available right now.", true);
+      };
+      reqRef.on("value", onReq); out.refs.push([reqRef, onReq]);
+      showWaiting(out);
+      renderPeople();
+    } catch (e) {
+      console.error(e);
+      err.textContent = "Couldn't send the request. Check your internet connection and try again.";
+    }
+  }
+  function showWaiting(out) {
+    const paint = () => {
+      if (PP.outgoing !== out) return;
+      const left = Math.max(0, Math.ceil((out.until - Date.now()) / 1000));
+      if (left <= 0) { cancelRequest("No answer from " + out.toName + "."); return; }
+      showSheet({
+        eyebrow: "Request sent",
+        title: "Waiting for " + out.toName + "…",
+        extra: (() => { const d = document.createElement("div"); d.className = "dots"; d.innerHTML = "<span></span><span></span><span></span>"; return d; })(),
+        body: "If they accept, the game starts straight away. " + left + " seconds left.",
+        actions: [{ label: "Cancel request", kind: "quiet", run: () => cancelRequest("") }]
+      });
+      out.timer = setTimeout(paint, 1000);
+    };
+    paint();
+  }
+  function stopOutgoing(out) {
+    clearTimeout(out.timer);
+    out.refs.forEach(([ref, fn]) => ref.off("value", fn));
+  }
+  function cancelRequest(note, declined) {
+    const out = PP.outgoing; if (!out) return;
+    PP.outgoing = null;
+    stopOutgoing(out);
+    out.reqRef.remove().catch(() => {});
+    ON.db.ref("rooms/" + out.code).remove().catch(() => {});
+    if (declined) { PP.declines++; if (PP.declines >= 3) { PP.pauseUntil = Date.now() + 60000; PP.declines = 0; } }
+    hideSheet();
+    if (note) toast(note);
+    renderPeople();
+  }
+  function requestAccepted(out) {
+    if (PP.outgoing !== out) return;
+    PP.outgoing = null; PP.declines = 0;
+    stopOutgoing(out);
+    out.reqRef.remove().catch(() => {});
+    hideSheet();
+    enterRoomFromPeople(out.code);
+  }
+
+  /* --- receiving requests --- */
+  function handleIncoming(reqs) {
+    const now = serverNow();
+    const live = Object.keys(reqs).filter(from => {
+      const r = reqs[from];
+      const ok = r && r.room && !PP.blocked.has(from) && !badName(String(r.name || "")) && (!r.at || now - r.at < REQUEST_MS + 5000);
+      if (!ok) ON.db.ref("requests/" + ON.uid + "/" + from).remove().catch(() => {});   // stale or blocked
+      return ok;
+    });
+    // Busy (in a game, or asking someone yourself): quietly decline
+    if (ON.active || PP.outgoing) { live.forEach(from => ON.db.ref("requests/" + ON.uid + "/" + from).remove().catch(() => {})); return; }
+    if (PP.showing && !live.includes(PP.showing)) {
+      const name = PP.showingName; PP.showing = null; hideSheet();
+      toast(name + " cancelled the request.");
+    }
+    if (PP.showing || !live.length) return;
+    const from = live.sort((a, b) => (reqs[b].at || 0) - (reqs[a].at || 0))[0], r = reqs[from];
+    PP.showing = from; PP.showingName = r.name;
+    beep(660, .09); setTimeout(() => beep(880, .12), 100);
+    try { navigator.vibrate && navigator.vibrate(150); } catch (e) {}
+    const decline = () => { PP.showing = null; hideSheet(); ON.db.ref("requests/" + ON.uid + "/" + from).remove().catch(() => {}); };
+    showSheet({
+      eyebrow: "Request to play",
+      title: r.name + " wants to play",
+      body: "🏆 " + (r.wins || 0) + (r.wins === 1 ? " win" : " wins") + " · " + settingsText(r),
+      actions: [
+        { label: "Block", kind: "quiet", run: () => { PP.blocked.add(from); decline(); renderPeople(); toast(r.name + " is blocked for this session."); } },
+        { label: "Decline", kind: "quiet", run: decline },
+        { label: "Accept", kind: "go", run: () => acceptRequest(from, r) }
+      ]
+    });
+  }
+  async function acceptRequest(from, r) {
+    PP.showing = null; hideSheet();
+    const reqRef = ON.db.ref("requests/" + ON.uid + "/" + from);
+    try {
+      const room = (await ON.db.ref("rooms/" + r.room).get()).val();
+      if (!room || (room.state || {}).status !== "lobby" || Object.keys(room.players || {}).length >= 2) throw new Error("gone");
+      await ON.db.ref("rooms/" + r.room + "/players/" + ON.uid).set({ name: myName(), joinedAt: TS() });
+      reqRef.remove().catch(() => {});
+      track("people_accept");
+      enterRoomFromPeople(r.room);
+    } catch (e) {
+      console.warn(e);
+      reqRef.remove().catch(() => {});
+      toast("That game isn't available anymore.");
+    }
+  }
+  function enterRoomFromPeople(code) {
+    PP.fromPeople = true;
+    document.body.dataset.mode = "online";
+    $("#people").hidden = true;
+    if (PP.meRef) PP.meRef.update({ status: "playing", room: code }).catch(() => {});
+    enterRoom(code);
+  }
+  $("#peopleOff").addEventListener("click", goOffline);
+  $("#peopleFriends").addEventListener("click", () => { goOffline(); setMode("online"); });
+  $("#peopleCpu").addEventListener("click", () => { goOffline(); setMode("cpu"); });
 
   /* ---------- sheet ---------- */
   function showSheet({ eyebrow, title, body, word, changed = -1, badge, badgeClass = "", extra, actions }) {

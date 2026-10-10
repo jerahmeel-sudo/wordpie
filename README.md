@@ -78,6 +78,15 @@ The hosted site sends page views and these game events to Google Analytics prope
 
 No player names or words are sent. To see live activity, go to **Reports → Realtime** in Google Analytics. Events show up in the main reports within about a day.
 
+## Find players (play people online)
+
+- **Going online:** "Go online" adds you to `online/{uid}` with your name, online wins and status (`free` or `playing`), and removes you when you go offline or disconnect. Everyone in Find players can see that list.
+- **Sending a request:** a request creates the requester's 2-player room first (`state.auto: true`, using the requester's settings), then writes `requests/{toUid}/{fromUid}`.
+- **Accepting:** the other player joins the room and deletes the request. The room's host starts the game automatically once both are in.
+- **Declining or no answer:** the request is deleted, or it expires after 20 seconds. The requester deletes the room.
+- **Limits:** you can have one request out at a time. Three declines in a row pause requests for a minute. Block hides a player for the session. Rude names are kept off the list.
+- **Online wins** are counted on each device (`localStorage`). They're honour-based, fine for bragging rights but not proof for prizes.
+
 ## Playing against the computer
 
 In "Vs computer" mode, one player takes turns with a computer opponent at Easy, Medium or Hard.

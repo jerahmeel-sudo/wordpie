@@ -1,5 +1,22 @@
 {
   "rules": {
+    "online": {
+      ".read": "auth != null",
+      "$uid": {
+        ".write": "auth != null && auth.uid === $uid",
+        ".validate": "newData.hasChildren(['name', 'wins', 'status']) && newData.child('name').isString() && newData.child('name').val().length >= 1 && newData.child('name').val().length <= 16 && newData.child('wins').isNumber() && (newData.child('status').val() === 'free' || newData.child('status').val() === 'playing')"
+      }
+    },
+    "requests": {
+      "$to": {
+        ".read": "auth != null && auth.uid === $to",
+        "$from": {
+          ".read": "auth != null && auth.uid === $from",
+          ".write": "auth != null && (auth.uid === $from || (auth.uid === $to && !newData.exists()))",
+          ".validate": "newData.hasChildren(['name', 'room', 'at'])"
+        }
+      }
+    },
     "rooms": {
       "$code": {
         ".read": "auth != null",
