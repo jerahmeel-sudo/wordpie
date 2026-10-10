@@ -96,6 +96,27 @@ In "Vs computer" mode, one player takes turns with a computer opponent at Easy, 
 - The computer's words go through the same dictionary check as the player's, and their meanings are shown.
 - If Datamuse can't be reached, the computer picks from the game's built-in starting-word lists instead.
 
+## The built-in dictionary
+
+Words are checked with Wordpie's own dictionary in `site/dict/`, served by Cloudflare with the rest of the site:
+
+| File | What it is |
+|---|---|
+| `words.txt` | One `word score` per line: 19,504 words of 3 to 6 letters. Score runs 0 (rare) to 9 (very common) and sets the computer's difficulty |
+| `def/<ab>.json` | Meanings for words starting with `<ab>`, as `{ word: [partOfSpeech, meaning] }` |
+| `WORDNET-LICENSE.txt` | WordNet's licence. Keep it with the files, and keep the credit on How to play |
+
+To rebuild it, for example to change the word list, download the two free sources into a folder outside the project, then run:
+
+```bash
+node tools/build-dictionary.mjs <unpacked 12dicts-6.0.2 folder> <WordNet 3.1 dict folder>
+```
+
+- 12dicts 6.0.2: http://downloads.sourceforge.net/wordlist/12dicts-6.0.2.zip (public domain)
+- WordNet 3.1: https://wordnetcode.princeton.edu/wn3.1.dict.tar.gz
+
+The words are 12dicts' `3of6game` list plus every lowercase WordNet word of 3 to 6 letters. Meanings use each word's most-used sense, and plurals and verb forms get their base word's meaning. Words with no built-in meaning (about 5%) still count, and their meaning is fetched from Wiktionary.
+
 ## How words are checked
 
 1. **Wiktionary** is checked first. Plurals and verb forms count. Proper nouns, abbreviations and obsolete spellings don't.

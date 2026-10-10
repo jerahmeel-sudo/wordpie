@@ -721,11 +721,11 @@ body[data-mode="people"] .field.people-show { display: grid !important; }
 
   /* ---------- the computer player ---------- */
   const CPU_LEVELS = {
-    easy:   { label: "Easy",   minF: 8,   think: [4000, 8000], fail: played => Math.min(.5, .12 + .06 * played),
+    easy:   { label: "Easy",   minF: 8,   minScore: 5,   think: [4000, 8000], fail: played => Math.min(.5, .12 + .06 * played),
               hint: "Plays common words and sometimes gets stuck. Good for warming up." },
-    medium: { label: "Medium", minF: 1.5, think: [2500, 5500], fail: played => Math.min(.25, .03 + .02 * played),
+    medium: { label: "Medium", minF: 1.5, minScore: 2, think: [2500, 5500], fail: played => Math.min(.25, .03 + .02 * played),
               hint: "Knows lots of words and rarely gets stuck." },
-    hard:   { label: "Hard",   minF: .6,  think: [1500, 3500], fail: () => 0,
+    hard:   { label: "Hard",   minF: .6,  minScore: 0, think: [1500, 3500], fail: () => 0,
               hint: "Quick, never gives up, and picks words that leave you the fewest moves." }
   };
   cfg.level = "medium";
@@ -737,6 +737,20 @@ body[data-mode="people"] .field.people-show { display: grid !important; }
   const patternCache = new Map();
   // Every real word one letter away from `word`: [{w, f}] where f = how common it is (uses per million words)
   async function cpuCandidates(word) {
+    // Built-in dictionary: try every letter in every position. f is its 0-9 "how common" score.
+    let words = null;
+    try { words = await loadDict(); } catch (e) {}
+    if (words) {
+      const out = [];
+      for (let i = 0; i < word.length; i++) for (let c = 65; c <= 90; c++) {
+        const L = String.fromCharCode(c);
+        if (L === word[i]) continue;
+        const w = word.slice(0, i) + L + word.slice(i + 1);
+        if (words.has(w)) out.push({ w, f: words.get(w), local: true });
+      }
+      return out;
+    }
+    // Otherwise Datamuse (f = uses per million words), then the starting-word lists
     const pats = [...word].map((_, i) => (word.slice(0, i) + "?" + word.slice(i + 1)).toLowerCase());
     let found = [];
     try {
@@ -759,14 +773,15 @@ body[data-mode="people"] .field.people-show { display: grid !important; }
   async function cpuChoose(word, used, level, played) {
     const L = CPU_LEVELS[level];
     if (Math.random() < L.fail(played)) return null;            // "can't think of one"
-    let cands = (await cpuCandidates(word)).filter(c => !used.has(c.w) && c.f >= L.minF);
+    const common = c => c.f >= (c.local ? L.minScore : L.minF);
+    let cands = (await cpuCandidates(word)).filter(c => !used.has(c.w) && common(c));
     if (!cands.length) return null;
     let order;
     if (level === "hard") {
       // Look one move ahead: prefer words that leave the player the fewest common replies
       const top = [...cands].sort((a, b) => b.f - a.f).slice(0, 6);
       const scored = await Promise.all(top.map(async c => {
-        const next = (await cpuCandidates(c.w)).filter(x => x.f >= 2 && !used.has(x.w) && x.w !== c.w && x.w !== word);
+        const next = (await cpuCandidates(c.w)).filter(x => x.f >= (x.local ? 3 : 2) && !used.has(x.w) && x.w !== c.w && x.w !== word);
         return { c, replies: next.length };
       }));
       order = scored.sort((a, b) => a.replies - b.replies).map(x => x.c);
@@ -1014,11 +1029,53 @@ body[data-mode="people"] .field.people-show { display: grid !important; }
     }
     return { found: false, source: "Free Dictionary" };
   }
+  /* --- the built-in dictionary: /dict/words.txt ("word score" per line) and /dict/def/<ab>.json meanings --- */
+  const DICT = { words: null, defs: new Map(), loading: null };
+  function loadDict() {
+    if (DICT.words) return Promise.resolve(DICT.words);
+    if (DICT.loading) return DICT.loading;
+    DICT.loading = (async () => {
+      const r = await fetch("/dict/words.txt");
+      if (!r.ok) throw new Error("No built-in dictionary here");
+      const m = new Map();
+      for (const line of (await r.text()).split("\n")) {
+        const [w, sc] = line.split(" ");
+        if (w) m.set(w.toUpperCase(), +sc || 0);
+      }
+      if (m.size < 1000) throw new Error("Built-in dictionary looks incomplete");
+      DICT.words = m;
+      return m;
+    })();
+    DICT.loading.catch(() => { DICT.loading = null; });
+    return DICT.loading;
+  }
+  function dictMeaning(word) {
+    const k = word.slice(0, 2).toLowerCase();
+    if (!DICT.defs.has(k)) DICT.defs.set(k, fetch("/dict/def/" + k + ".json").then(r => (r.ok ? r.json() : {})).catch(() => ({})));
+    return DICT.defs.get(k).then(shard => shard[word.toLowerCase()] || null);
+  }
+
   async function lookupWord(word) {
     if (lookupCache.has(word)) return lookupCache.get(word);
-    let res;
-    try { res = await fromWiktionary(word); }
-    catch (e) { res = await fromFreeDictionary(word); }   // if this also fails, the caller falls back
+    let res = null;
+    try {
+      const words = await loadDict();
+      if (!words.has(word)) res = { found: false, source: "the Wordpie dictionary" };
+      else {
+        const d = await dictMeaning(word);
+        if (d) res = { found: true, pos: d[0], meaning: d[1], source: "the Wordpie dictionary" };
+        else {
+          // A real word with no built-in meaning: ask Wiktionary for one, but it counts either way
+          let w = null;
+          try { w = await fromWiktionary(word); } catch (e) {}
+          res = { found: true, pos: w && w.found ? w.pos : "", meaning: w && w.found ? w.meaning : "A real English word.", source: "the Wordpie dictionary" };
+        }
+      }
+    } catch (e) { res = null; }                              // built-in dictionary unavailable here
+    if (!res) {
+      try { res = await fromWiktionary(word); }
+      catch (e) { res = await fromFreeDictionary(word); }    // if this also fails, the caller falls back
+    }
     if (res.meaning && res.meaning.length > 160) res.meaning = res.meaning.slice(0, 157).replace(/\s+\S*$/, "") + "…";
     lookupCache.set(word, res);
     return res;
@@ -2761,6 +2818,7 @@ body[data-mode="people"] .field.people-show { display: grid !important; }
 
   /* ---------- boot ---------- */
   renderNames(); renderTimer(); renderLen(); renderDemo();
+  setTimeout(() => { loadDict().catch(() => {}); }, 300);
   $("#onlineName").value = store.get("wordpie.name") || "";
   $("#modeField").hidden = false;
   setMode("local");
