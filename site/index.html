@@ -260,18 +260,27 @@ button { cursor: pointer; }
 .sheet .link { background: none; border: 0; color: var(--muted); text-decoration: underline; font-size: .9rem; padding: 4px; }
 
 /* Sheet (handoff, table check, out, winner) */
+/* The sheet scrolls when its card is taller than the screen; the card centres when it fits (auto margins) */
 .sheet {
-  position: fixed; inset: 0; z-index: 10; display: grid; place-items: center; padding: 16px;
-  background: var(--scrim);
+  position: fixed; inset: 0; z-index: 10; display: flex; align-items: flex-start; justify-content: center;
+  padding: 16px; padding-top: calc(16px + env(safe-area-inset-top, 0px)); padding-bottom: calc(16px + env(safe-area-inset-bottom, 0px));
+  background: var(--scrim); overflow-y: auto; overscroll-behavior: contain; -webkit-overflow-scrolling: touch;
 }
 .sheet .card {
-  width: min(440px, 100%); background: var(--surface); border-radius: 16px; padding: 28px 24px;
+  width: min(440px, 100%); margin: auto 0; background: var(--surface); border-radius: 16px; padding: 28px 24px 0;
   display: grid; gap: 14px; text-align: center; justify-items: center;
   box-shadow: 0 20px 60px rgba(0,0,0,.25); animation: pop .3s ease;
 }
 .sheet h2 { font: 800 clamp(1.6rem, 6vw, 2.2rem)/1.1 var(--display); margin: 0; text-wrap: balance; }
 .sheet p { margin: 0; color: var(--muted); }
-.sheet .actions { display: flex; gap: 10px; flex-wrap: wrap; justify-content: center; width: 100%; }
+/* The buttons stay pinned to the bottom of the screen while the card scrolls, so Rematch is always reachable */
+.sheet .actions {
+  display: flex; gap: 10px; flex-wrap: wrap; justify-content: center; width: calc(100% + 48px);
+  position: sticky; bottom: calc(-16px - env(safe-area-inset-bottom, 0px)); z-index: 1;
+  margin: 0 -24px; padding: 14px 24px calc(24px + env(safe-area-inset-bottom, 0px));
+  background: var(--surface); border-radius: 0 0 16px 16px;
+  box-shadow: 0 -12px 16px -12px rgba(0,0,0,.25);
+}
 .sheet .actions .btn { flex: 1 1 140px; }
 .sheet .badge { font-size: 2.6rem; line-height: 1; }
 .sheet .badge.out { color: var(--stop); }
@@ -310,6 +319,7 @@ body[data-mode="cpu"] .field.cpu-show { display: grid !important; }
 .board li .who { flex: 1; min-width: 0; font-weight: 700; overflow-wrap: anywhere; }
 .board li .n { font-variant-numeric: tabular-nums; white-space: nowrap; }
 .board li.lead { background: var(--tile); color: var(--tile-ink); }
+.board li.more { justify-content: center; background: transparent; color: var(--muted); font-size: .88rem; padding: 2px 12px; }
 .board li.lead .rank { color: var(--tile-ink); }
 .lenpick { display: grid; gap: 8px; justify-items: center; }
 .sharerow { display: flex; gap: 8px; flex-wrap: wrap; justify-content: center; width: 100%; }
@@ -1398,7 +1408,10 @@ body[data-mode="cpu"] .field.cpu-show { display: grid !important; }
     const t = document.createElement("p"); t.className = "board-title";
     t.textContent = "Leaderboard" + (games > 1 ? " · after " + games + " games" : "");
     const ol = document.createElement("ol");
-    [...rows].sort((a, b) => b[1] - a[1]).forEach((r, i) => {
+    const sorted = [...rows].sort((a, b) => b[1] - a[1]);
+    // Small games list everyone; big games list the winners (up to 5) and sum up the rest in one line
+    const shown = sorted.length <= 4 ? sorted : sorted.filter(r => r[1] > 0).slice(0, 5);
+    shown.forEach((r, i) => {
       const li = document.createElement("li");
       if (r[1] === top) li.className = "lead";
       const rank = document.createElement("span"); rank.className = "rank"; rank.textContent = i + 1;
@@ -1407,6 +1420,13 @@ body[data-mode="cpu"] .field.cpu-show { display: grid !important; }
       li.append(rank, who, num);
       ol.appendChild(li);
     });
+    const rest = sorted.slice(shown.length);
+    if (rest.length) {
+      const li = document.createElement("li"); li.className = "more";
+      const anyWins = rest.some(r => r[1] > 0);
+      li.textContent = "+ " + rest.length + (rest.length === 1 ? " other" : " others") + (anyWins ? "" : " with no wins yet");
+      ol.appendChild(li);
+    }
     box.append(t, ol);
     return box;
   }
