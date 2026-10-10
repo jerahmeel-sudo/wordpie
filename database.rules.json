@@ -32,6 +32,18 @@
             ".validate": "newData.isBoolean()"
           }
         },
+        "watchers": {
+          "$uid": {
+            ".write": "auth != null && auth.uid === $uid",
+            ".validate": "newData.hasChildren(['name']) && newData.child('name').isString() && newData.child('name').val().length <= 16"
+          }
+        },
+        "reacts": {
+          "$uid": {
+            ".write": "auth != null && auth.uid === $uid",
+            ".validate": "newData.hasChildren(['e', 'id']) && newData.child('e').isString() && newData.child('e').val().length <= 8"
+          }
+        },
         "state": {
           ".write": "auth != null && data.parent().child('players').child(auth.uid).exists()",
           ".validate": "newData.hasChild('status')",

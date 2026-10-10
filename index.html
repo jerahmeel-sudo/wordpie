@@ -311,6 +311,13 @@ body[data-mode="cpu"] .field.cpu-show { display: grid !important; }
   box-shadow: 0 10px 30px rgba(0,0,0,.25); animation: pop .3s ease;
 }
 
+/* Watch mode */
+.watchinfo { display: flex; align-items: center; justify-content: center; gap: 10px; flex-wrap: wrap; font-weight: 700; color: var(--muted); }
+.watchinfo .ghost { font-size: .82rem; padding: 4px 12px; }
+.watchrow { display: flex; align-items: center; justify-content: center; gap: 8px; flex-wrap: wrap; width: 100%; }
+.watchrow .hint { margin: 0; }
+.watching-banner { margin: 0; padding: 8px 14px; border-radius: 999px; background: var(--tile); color: var(--tile-ink); font-weight: 700; text-align: center; }
+
 /* Emoji reactions (online) */
 .reactbar { display: flex; justify-content: center; gap: 8px; flex-wrap: wrap; }
 .react {
@@ -373,6 +380,7 @@ body[data-mode="cpu"] .field.cpu-show { display: grid !important; }
           <button class="btn go" type="button" id="joinBtn">Join game</button>
         </div>
         <p class="err" id="joinErr" role="alert"></p>
+        <button class="btn" type="button" id="watchBtn" hidden>👀 Watch this game instead</button>
       </div>
 
       <p class="divider online-only create-only" id="orNew"><span>or start a new game</span></p>
@@ -453,6 +461,10 @@ body[data-mode="cpu"] .field.cpu-show { display: grid !important; }
         <button class="btn" type="button" id="copyLink">Copy link</button>
         <a class="btn go" id="waLink" href="#" target="_blank" rel="noopener">Share on WhatsApp</a>
       </div>
+      <div class="watchrow">
+        <span class="hint" id="lobbyWatchers">Want people to watch? Send them the watch link.</span>
+        <button class="btn quiet" type="button" data-copy-watch>👀 Copy watch link</button>
+      </div>
       <p class="hint" id="lobbySettings"></p>
       <div id="lobbyBoard" class="board-slot"></div>
     </div>
@@ -477,6 +489,11 @@ body[data-mode="cpu"] .field.cpu-show { display: grid !important; }
 
   <!-- GAME -->
   <section id="game" hidden>
+    <p class="watching-banner" id="watchBanner" hidden>👀 You're watching this game live</p>
+    <div class="watchinfo online-only" id="watchInfo" hidden>
+      <span id="watchCount"></span>
+      <button class="ghost" type="button" data-copy-watch>Copy watch link</button>
+    </div>
     <div class="players" id="playerStrip"></div>
 
     <div class="panel stage" id="stage">
@@ -1513,7 +1530,7 @@ body[data-mode="cpu"] .field.cpu-show { display: grid !important; }
   });
   function resetQuit() {
     clearTimeout(quitTimer);
-    const b = $("#quitBtn"); b.classList.remove("armed"); b.textContent = ON.active ? "Leave game" : "End game";
+    const b = $("#quitBtn"); b.classList.remove("armed"); b.textContent = ON.watching ? "Stop watching" : ON.active ? "Leave game" : "End game";
   }
 
   /* ---------- online play (Firebase Realtime Database) ----------
@@ -1633,9 +1650,9 @@ body[data-mode="cpu"] .field.cpu-show { display: grid !important; }
         enterRoom(code); return;
       }
       if (auto) return;                           // a fresh visitor still has to type a name
-      if ((room.state || {}).status !== "lobby") { err.textContent = "That game has already started. Ask the host to invite you to the next one."; return; }
+      if ((room.state || {}).status !== "lobby") { err.textContent = "That game has already started."; offerWatch(code); return; }
       const seats = ((room.state || {}).seats) || 8;
-      if (Object.keys(players).length >= seats) { err.textContent = "That game is full. It's set up for " + seats + " players. Ask the host to add a spot for you."; return; }
+      if (Object.keys(players).length >= seats) { err.textContent = "That game is full. It's set up for " + seats + " players. Ask the host to add a spot for you, or watch."; offerWatch(code); return; }
       await ON.db.ref("rooms/" + code + "/players/" + ON.uid).set({ name, joinedAt: TS() });
       track("online_game_join");
       enterRoom(code);
@@ -1671,34 +1688,77 @@ body[data-mode="cpu"] .field.cpu-show { display: grid !important; }
     const id = rid();
     ON.reactSeen[ON.uid] = id;                 // shown right away here; don't show it again when it echoes back
     floatEmoji(e, "You");
-    try { await ON.ref.child("state/reacts/" + ON.uid).set({ e, id, at: TS() }); }
+    try { await ON.ref.child("reacts/" + ON.uid).set({ e, id, at: TS() }); }
     catch (err) { console.error(err); }
   }
   // Float any reactions that arrived since the last update (not old ones when you first join)
-  function handleReacts(s) {
-    const reacts = s.reacts || {};
+  function handleReacts(r) {
+    const reacts = (r && r.reacts) || {};
     Object.keys(reacts).forEach(u => {
       const r = reacts[u];
       if (!r || !r.id || ON.reactSeen[u] === r.id) return;
       ON.reactSeen[u] = r.id;
       const fresh = ON.reactsReady && (!r.at || Math.abs(serverNow() - r.at) < 6000);
-      if (fresh && REACTIONS.includes(r.e)) floatEmoji(r.e, onName(u));
+      if (fresh && REACTIONS.includes(r.e)) floatEmoji(r.e, watcherOrPlayerName(u));
     });
     ON.reactsReady = true;
   }
 
-  function enterRoom(code) {
-    ON.reactSeen = {}; ON.reactsReady = false;
+  /* --- watch mode --- */
+  function watchLink() { return (location.origin && location.origin !== "null" ? location.origin : "https://wordpie.app") + "/watch/" + ON.code; }
+  function watcherOrPlayerName(u) {
+    const r = ON.room || {};
+    if (u === ON.uid) return "You";
+    if (r.players && r.players[u]) return onName(u);
+    return ((r.watchers || {})[u] || {}).name || "A fan";
+  }
+  function offerWatch(code) {
+    const b = $("#watchBtn");
+    b.hidden = false;
+    b.onclick = () => watchRoom(code);
+  }
+  async function watchRoom(code) {
+    code = codeClean(code);
+    const err = $("#joinErr");
+    try {
+      await firebaseInit();
+      const snap = await ON.db.ref("rooms/" + code).get();
+      if (!snap.exists()) { err.textContent = "There's no game with the code " + code + " to watch."; return; }
+      $("#watchBtn").hidden = true; err.textContent = "";
+      track("watch_start");
+      enterRoom(code, { watch: true });
+    } catch (e) { console.error(e); err.textContent = "Couldn't open the game. Check your internet connection and try again."; }
+  }
+  function renderWatchers(r, s) {
+    const count = Object.keys(r.watchers || {}).length;
+    const label = count ? "👀 " + count + " watching" : "";
+    $("#watchBanner").hidden = !ON.watching;
+    $("#watchInfo").hidden = s.status === "lobby";
+    $("#watchCount").textContent = label || "👀 No one watching yet";
+    $("#lobbyWatchers").textContent = count ? label + ". Share the watch link with more people:" : "Want people to watch? Send them the watch link.";
+  }
+  document.querySelectorAll("[data-copy-watch]").forEach(b => b.addEventListener("click", async () => {
+    if (!ON.code) return;
+    const link = watchLink();
+    track("watch_link_copy");
+    try { await navigator.clipboard.writeText(link); toast("Watch link copied: " + link); }
+    catch (e) { toast("Watch link: " + link); }
+  }));
+
+  function enterRoom(code, { watch = false } = {}) {
+    ON.reactSeen = {}; ON.reactsReady = false; ON.watching = watch;
     ON.active = true; ON.code = code; ON.seenFirst = false; ON.turnKey = null; ON.sheet = null; ON.chainKey = null; ON.lastHost = null; ON.claimKey = null;
     ON.ref = ON.db.ref("rooms/" + code);
-    const pres = ON.ref.child("presence/" + ON.uid);
+    // Players mark themselves online under presence/; watchers under watchers/ (with a name for their reactions)
+    const pres = ON.presRef = watch ? ON.ref.child("watchers/" + ON.uid) : ON.ref.child("presence/" + ON.uid);
+    const presVal = watch ? { name: (store.get("wordpie.name") || "A fan").slice(0, 16), at: TS() } : true;
     const conn = ON.db.ref(".info/connected");
-    const onConn = s => { if (s.val()) { pres.onDisconnect().remove(); pres.set(true); } };
+    const onConn = s => { if (s.val()) { pres.onDisconnect().remove(); pres.set(presVal).catch(e => console.warn("Couldn't register (check the database rules are up to date)", e)); } };
     const onRoom = snap => { ON.room = snap.val(); renderOnline(); };
     conn.on("value", onConn);
     ON.ref.on("value", onRoom);
     ON.handlers = [[conn, onConn], [ON.ref, onRoom]];
-    try { history.replaceState(null, "", "/join/" + code); } catch (e) {}
+    try { history.replaceState(null, "", (watch ? "/watch/" : "/join/") + code); } catch (e) {}
     clearInterval(ON.ticker);
     ON.ticker = setInterval(onlineTick, 200);
     document.body.dataset.invited = "";
@@ -1708,12 +1768,13 @@ body[data-mode="cpu"] .field.cpu-show { display: grid !important; }
   function leaveRoom(note) {
     ON.handlers.forEach(([ref, fn]) => ref.off("value", fn));
     ON.handlers = [];
-    if (ON.ref) {
-      const pres = ON.ref.child("presence/" + ON.uid);
+    if (ON.presRef) {
+      const pres = ON.presRef;
       pres.onDisconnect().cancel(); pres.remove().catch(() => {});
     }
     clearInterval(ON.ticker);
-    Object.assign(ON, { active: false, code: null, ref: null, room: null, sheet: null });
+    Object.assign(ON, { active: false, watching: false, presRef: null, code: null, ref: null, room: null, sheet: null });
+    $("#watchBanner").hidden = true; $("#watchInfo").hidden = true;
     try { history.replaceState(null, "", "/"); } catch (e) {}
     hideSheet();
     $("#lobby").hidden = true; $("#game").hidden = true; $("#setup").hidden = false;
@@ -1724,6 +1785,7 @@ body[data-mode="cpu"] .field.cpu-show { display: grid !important; }
   }
 
   async function onlineLeave() {
+    if (ON.watching) { leaveRoom(); return; }
     const r = ON.room, uid = ON.uid;
     ON.leaving = true;                         // don't auto-rejoin while walking out
     try {
@@ -1923,6 +1985,7 @@ body[data-mode="cpu"] .field.cpu-show { display: grid !important; }
   let hostAwaySince = 0;
   function checkHost() {
     const r = ON.room;
+    if (ON.watching) return;
     if (!r || !r.host || r.host === ON.uid || (r.presence || {})[r.host]) { hostAwaySince = 0; return; }
     hostAwaySince = hostAwaySince || Date.now();
     if (Date.now() - hostAwaySince < AWAY_LIMIT) return;
@@ -1969,7 +2032,7 @@ body[data-mode="cpu"] .field.cpu-show { display: grid !important; }
     paintClock(rem, total, running, onMyTurn());
   }
   function claim(key, fn) {
-    if (ON.claimKey === key) return;
+    if (ON.watching || ON.claimKey === key) return;
     ON.claimKey = key;
     txState(fn).catch(e => { console.error(e); ON.claimKey = null; });
   }
@@ -1986,7 +2049,7 @@ body[data-mode="cpu"] .field.cpu-show { display: grid !important; }
     }
     ON.lastHost = r.host;
     // Back after leaving or losing signal: rejoin the game in progress
-    if (s.status === "playing" && (s.out || {})[ON.uid] === "left the game" && !s.final && !ON.rejoining && !ON.leaving) {
+    if (s.status === "playing" && (s.out || {})[ON.uid] === "left the game" && !s.final && !ON.rejoining && !ON.leaving && !ON.watching) {
       ON.rejoining = true;
       txState(st => {
         if (st.status !== "playing" || st.final || (st.out || {})[ON.uid] !== "left the game") return;
@@ -1995,7 +2058,7 @@ body[data-mode="cpu"] .field.cpu-show { display: grid !important; }
         return st;
       }).catch(e => console.error(e)).finally(() => { ON.rejoining = false; });
     }
-    if (s.status === "lobby" && !(r.players || {})[ON.uid] && !ON.leaving) {
+    if (s.status === "lobby" && !(r.players || {})[ON.uid] && !ON.leaving && !ON.watching) {
       leaveRoom("The host removed you from this game. You can join again if there's a free spot.");
       return;
     }
@@ -2010,7 +2073,8 @@ body[data-mode="cpu"] .field.cpu-show { display: grid !important; }
       renderOnGame(r, s);
     }
     handleEvent(s);
-    handleReacts(s);
+    handleReacts(r);
+    renderWatchers(r, s);
   }
 
   function renderLobby(r) {
@@ -2075,6 +2139,7 @@ body[data-mode="cpu"] .field.cpu-show { display: grid !important; }
       : away.length ? "Waiting for " + away.join(" and ") + " to come back online." : "";
     $("#lobbyWait").textContent = isHost
       ? (waitingFor ? waitingFor + (missing ? " Share the link above." : "") : "Everyone's here. Tap Start game.")
+      : ON.watching ? "👀 You're watching. The game starts when " + onName(r.host) + " is ready."
       : (waitingFor || "Everyone's here. Waiting for " + onName(r.host) + " to start the game.");
   }
 
@@ -2161,7 +2226,9 @@ body[data-mode="cpu"] .field.cpu-show { display: grid !important; }
         extra: (() => {
           const box = document.createElement("div"); box.className = "endextra";
           box.appendChild(shareRow({
-            headline: won ? "I won at Wordpie! 🏆" : s.winner ? onName(s.winner) + " won our Wordpie game! 🏆" : "Nobody survived our Wordpie game 😅",
+            headline: ON.watching
+              ? (s.winner ? "I watched " + onName(s.winner) + " win at Wordpie! 🏆" : "I watched a Wordpie game where nobody survived 😅")
+              : won ? "I won at Wordpie! 🏆" : s.winner ? onName(s.winner) + " won our Wordpie game! 🏆" : "Nobody survived our Wordpie game 😅",
             words: chain.map(c => c.w), players: order.length
           }));
           const board = winsBoard(order.map(u => [onName(u), (s.wins || {})[u] || 0]), s.games || 1);
@@ -2315,7 +2382,17 @@ body[data-mode="cpu"] .field.cpu-show { display: grid !important; }
   $("#modeField").hidden = false;
   setMode("local");
   if (ONLINE_OK) {
-    const m = location.pathname.match(/\/join\/([A-Za-z0-9]{4,6})\/?$/);
+    const w = location.pathname.match(/\/watch\/([A-Za-z0-9]{4,6})\/?$/);
+    if (w) {
+      setMode("online");
+      document.body.dataset.invited = "1";
+      $("#joinCode").value = codeClean(w[1]);
+      $("#heroEyebrow").textContent = "Wordpie";
+      $("#heroTitle").textContent = "Watch a live game";
+      $("#heroText").textContent = "Opening the game…";
+      watchRoom(w[1]);
+    }
+    const m = !w && location.pathname.match(/\/join\/([A-Za-z0-9]{4,6})\/?$/);
     const invite = codeClean(m ? m[1] : new URLSearchParams(location.search).get("join"));
     if (invite) {
       setMode("online");
