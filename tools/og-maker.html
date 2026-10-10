@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Wordpie share card maker</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,800&family=Atkinson+Hyperlegible:wght@700&display=swap">
+<style>body{margin:0;background:#222;display:grid;gap:16px;padding:16px;justify-items:start}canvas{max-width:100%;height:auto;outline:1px solid #555}</style>
+</head>
+<body>
+<!-- Draws the link-preview image (og.png, 1200x630) and the app icon (icon.png, 512x512) in the game's style.
+     Open this page, then read window.wordpieImages() for PNG data URLs. -->
+<canvas id="og" width="1200" height="630"></canvas>
+<canvas id="icon" width="512" height="512"></canvas>
+<script>
+const C = { bg: "#E7EEE8", ink: "#15241D", muted: "#5A6B62", tile: "#F5C443", tileInk: "#2B1F05", tileEdge: "#C2922A", go: "#1E8657", line: "#C6D3CA" };
+const DISPLAY = '"Bricolage Grotesque", "Arial Black", sans-serif';
+const BODY = '"Atkinson Hyperlegible", Arial, sans-serif';
+
+function roundRect(ctx, x, y, w, h, r) {
+  ctx.beginPath();
+  ctx.moveTo(x + r, y); ctx.arcTo(x + w, y, x + w, y + h, r); ctx.arcTo(x + w, y + h, x, y + h, r);
+  ctx.arcTo(x, y + h, x, y, r); ctx.arcTo(x, y, x + w, y, r); ctx.closePath();
+}
+// A wooden letter tile like the game's: face colour, darker bottom edge
+function tile(ctx, x, y, size, ch, green) {
+  const r = size * 0.16, edge = size * 0.09;
+  ctx.fillStyle = green ? "#14663F" : C.tileEdge;
+  roundRect(ctx, x, y, size, size * 1.05, r); ctx.fill();
+  ctx.fillStyle = green ? C.go : C.tile;
+  roundRect(ctx, x, y, size, size * 1.05 - edge, r); ctx.fill();
+  ctx.fillStyle = green ? "#FFFFFF" : C.tileInk;
+  ctx.font = "800 " + Math.round(size * 0.56) + "px " + DISPLAY;
+  ctx.textAlign = "center"; ctx.textBaseline = "middle";
+  ctx.fillText(ch, x + size / 2, y + (size * 1.05 - edge) / 2 + size * 0.03);
+}
+function row(ctx, x, y, size, gap, word, changed) {
+  [...word].forEach((ch, i) => tile(ctx, x + i * (size + gap), y, size, ch, i === changed));
+  return word.length * size + (word.length - 1) * gap;
+}
+
+function drawOG() {
+  const cv = document.getElementById("og"), ctx = cv.getContext("2d");
+  ctx.fillStyle = C.bg; ctx.fillRect(0, 0, 1200, 630);
+  // soft panel
+  ctx.fillStyle = "#F8FBF7"; roundRect(ctx, 48, 48, 1104, 534, 36); ctx.fill();
+  ctx.strokeStyle = C.line; ctx.lineWidth = 2; ctx.stroke();
+
+  // brand
+  row(ctx, 104, 100, 54, 8, "PIE", 1);
+  ctx.fillStyle = C.ink; ctx.textAlign = "left"; ctx.textBaseline = "alphabetic";
+  ctx.font = "800 60px " + DISPLAY; ctx.fillText("Wordpie", 304, 150);
+
+  // headline
+  ctx.font = "800 66px " + DISPLAY; ctx.fillStyle = C.ink;
+  ctx.fillText("Change one letter.", 104, 278);
+  ctx.fillText("Beat the clock.", 104, 360);
+
+  // the example chain, right side
+  const size = 92, gap = 10;
+  row(ctx, 676, 112, size, gap, "HELL", -1);
+  ctx.fillStyle = C.muted; ctx.font = "800 44px " + DISPLAY; ctx.textAlign = "center";
+  ctx.fillText("↓", 676 + (4 * size + 3 * gap) / 2, 268);
+  row(ctx, 676, 286, size, gap, "BELL", 0);
+
+  // footer line
+  ctx.textAlign = "left";
+  ctx.fillStyle = C.muted; ctx.font = "700 32px " + BODY;
+  ctx.fillText("Play with friends on one phone or online · No sign-up", 104, 470);
+  ctx.fillStyle = C.go; ctx.font = "800 40px " + DISPLAY;
+  ctx.fillText("wordpie.app", 104, 532);
+}
+
+function drawIcon() {
+  const cv = document.getElementById("icon"), ctx = cv.getContext("2d");
+  ctx.fillStyle = C.bg; roundRect(ctx, 0, 0, 512, 512, 112); ctx.fill();
+  // "PIE" in three tiles, middle one green, as in the game's logo
+  const size = 128, gap = 14, w = 3 * size + 2 * gap;
+  row(ctx, (512 - w) / 2, (512 - size * 1.05) / 2, size, gap, "PIE", 1);
+}
+
+window.wordpieImages = async () => {
+  await document.fonts.load('800 60px "Bricolage Grotesque"');
+  await document.fonts.load('700 32px "Atkinson Hyperlegible"');
+  await document.fonts.ready;
+  drawOG(); drawIcon();
+  return { og: document.getElementById("og").toDataURL("image/png"), icon: document.getElementById("icon").toDataURL("image/png") };
+};
+window.wordpieImages();
+</script>
+</body>
+</html>

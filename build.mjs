@@ -25,6 +25,23 @@ const page = `<!doctype html>
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="description" content="Wordpie: change one letter, make a new word, beat the clock. Play on one phone or invite friends online.">
 ${headBits.join("\n")}
+<link rel="icon" type="image/png" href="/icon.png">
+<link rel="apple-touch-icon" href="/icon.png">
+<meta name="theme-color" content="#1E8657">
+<!-- Link preview card (WhatsApp, X, Facebook, iMessage). Image made with tools/og-maker.html -->
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="Wordpie">
+<meta property="og:url" content="https://wordpie.app/">
+<meta property="og:title" content="Wordpie: change one letter, beat the clock">
+<meta property="og:description" content="A fast word game for 2 to 8 players. Swap one letter to make a new word before your time runs out. Play on one phone or invite friends online. No sign-up.">
+<meta property="og:image" content="https://wordpie.app/og.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="Wordpie: Change one letter. Beat the clock. HELL becomes BELL.">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Wordpie: change one letter, beat the clock">
+<meta name="twitter:description" content="Swap one letter to make a new word before your time runs out. Play with friends on one phone or online.">
+<meta name="twitter:image" content="https://wordpie.app/og.png">
 <style>[hidden]{display:none!important}body{margin:0}img{max-width:100%}</style>
 <script>try{var t=localStorage.getItem("wordpie.theme");if(t==="light"||t==="dark")document.documentElement.dataset.theme=t}catch(e){}</script>
 <script src="/firebase-config.js"></script>
