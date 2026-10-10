@@ -690,7 +690,7 @@ body[data-mode="people"] .field.people-show { display: grid !important; }
               hint: "Plays common words and sometimes gets stuck. Good for warming up." },
     medium: { label: "Medium", minF: 1.5, minScore: 2, think: [2500, 5500], fail: played => Math.min(.25, .03 + .02 * played),
               hint: "Knows lots of words and rarely gets stuck." },
-    hard:   { label: "Hard",   minF: .6,  minScore: 0, think: [1500, 3500], fail: () => 0,
+    hard:   { label: "Hard",   minF: .6,  minScore: 1, think: [1500, 3500], fail: () => 0,
               hint: "Quick, never gives up, and picks words that leave you the fewest moves." }
   };
   cfg.level = "medium";

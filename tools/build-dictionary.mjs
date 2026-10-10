@@ -173,13 +173,9 @@ const wiktMeaning = w => {
 if (existsSync(OUT)) rmSync(OUT, { recursive: true });
 mkdirSync(new URL("def/", OUT), { recursive: true });
 const sorted = [...words].sort();
-// Wiktionary-only words: 12dicts' commonness if it knows them, else their base word's, else rare
-const finalScore = w => {
-  const s = score(w);
-  if (s || !(wikt.add || {})[w]) return s;
-  const formOf = wikt.add[w][2];
-  return formOf ? Math.max(0, score(formOf) - 1) : 1;
-};
+// Words only Wiktionary added (KINS, AWAYS…) count for players but are scored rare (0), so the computer,
+// which never plays rare words, doesn't pick odd ones
+const finalScore = w => ((wikt.add || {})[w] ? 0 : score(w));
 writeFileSync(new URL("words.txt", OUT), sorted.map(w => w + " " + finalScore(w)).join("\n") + "\n");
 const shards = {};
 let withMeaning = 0;
