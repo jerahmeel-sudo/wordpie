@@ -115,7 +115,15 @@ node tools/build-dictionary.mjs <unpacked 12dicts-6.0.2 folder> <WordNet 3.1 dic
 - 12dicts 6.0.2: http://downloads.sourceforge.net/wordlist/12dicts-6.0.2.zip (public domain)
 - WordNet 3.1: https://wordnetcode.princeton.edu/wn3.1.dict.tar.gz
 
-The words are 12dicts' `3of6game` list plus every lowercase WordNet word of 3 to 6 letters. Meanings use each word's most-used sense, and plurals and verb forms get their base word's meaning. Words with no built-in meaning (about 5%) still count, and their meaning is fetched from Wiktionary.
+The words are 12dicts' `3of6game` list, plus every lowercase WordNet word of 3 to 6 letters, plus the approved Wiktionary words in `tools/data/wiktionary.json`. That file is CC BY-SA 4.0 and also fills meanings WordNet can't give.
+
+To look for more words or meanings in Wiktionary, stream the kaikki.org extract (about 520 MB) through the scanner. It writes a report and changes nothing:
+
+```bash
+curl -sL https://kaikki.org/dictionary/English/kaikki.org-dictionary-English.jsonl.gz | node tools/scan-wiktionary.mjs <12dicts folder> report.json
+```
+
+The report has `add` (every new word with a normal meaning), `addKnown` (new words that 12dicts' bigger lists also have), `fill` (meanings for words we have without one) and `stillMissing`. Copy what you approve into `tools/data/wiktionary.json`, then rebuild. Meanings use each word's most-used sense, and plurals and verb forms get their base word's meaning. Words with no built-in meaning (about 5%) still count, and their meaning is fetched from Wiktionary.
 
 ## How words are checked
 

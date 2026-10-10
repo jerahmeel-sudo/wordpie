@@ -153,18 +153,40 @@ for (const line of read(join(D12, "International", "3of6game.txt")).split("\n"))
 }
 const fromGameList = words.size;
 for (const w of base.keys()) if (/[aeiouy]/.test(w)) words.add(w);       // real dictionary words the list missed
+const fromWordNet = words.size - fromGameList;
+
+/* ---------- approved words and meanings from Wiktionary (tools/data/wiktionary.json, CC BY-SA 4.0) ---------- */
+// { add: { word: [pos, meaning, formOf] }, fill: { word: [pos, meaning, formOf] } } — made by tools/scan-wiktionary.mjs,
+// reviewed, then saved here so every rebuild keeps them.
+const WIKT_FILE = new URL("data/wiktionary.json", import.meta.url);
+const wikt = existsSync(WIKT_FILE) ? JSON.parse(readFileSync(WIKT_FILE, "utf8")) : { add: {}, fill: {} };
+for (const w of Object.keys(wikt.add || {})) if (ok(w)) words.add(w);
+const wiktMeaning = w => {
+  const e = (wikt.add || {})[w] || (wikt.fill || {})[w];
+  if (!e) return null;
+  const [pos, meaning, formOf] = e;
+  const b = formOf && (perPos.noun.get(formOf) || perPos.verb.get(formOf) || perPos.adj.get(formOf) || base.get(formOf));
+  return [pos, b && !meaning.includes(":") ? meaning.replace(/\.$/, "") + ": " + lower(b.meaning) : meaning];
+};
 
 /* ---------- write the files ---------- */
 if (existsSync(OUT)) rmSync(OUT, { recursive: true });
 mkdirSync(new URL("def/", OUT), { recursive: true });
 const sorted = [...words].sort();
-writeFileSync(new URL("words.txt", OUT), sorted.map(w => w + " " + score(w)).join("\n") + "\n");
+// Wiktionary-only words: 12dicts' commonness if it knows them, else their base word's, else rare
+const finalScore = w => {
+  const s = score(w);
+  if (s || !(wikt.add || {})[w]) return s;
+  const formOf = wikt.add[w][2];
+  return formOf ? Math.max(0, score(formOf) - 1) : 1;
+};
+writeFileSync(new URL("words.txt", OUT), sorted.map(w => w + " " + finalScore(w)).join("\n") + "\n");
 const shards = {};
 let withMeaning = 0;
 for (const w of sorted) {
   const e = base.get(w), form = describeForm(w);
   // A rarely-used entry of its own (BAKED as an adjective) loses to "past tense of bake"
-  const d = e && !(form && e.weight < 1 && form.weight >= 1) ? [e.pos, e.meaning] : form ? [form.pos, form.text] : null;
+  const d = e && !(form && e.weight < 1 && form.weight >= 1) ? [e.pos, e.meaning] : form ? [form.pos, form.text] : wiktMeaning(w);
   if (!d) continue;
   withMeaning++;
   (shards[w.slice(0, 2)] = shards[w.slice(0, 2)] || {})[w] = d;
@@ -176,5 +198,5 @@ const licence = read(join(WN, "data.noun")).split("\n").filter(l => l.startsWith
 writeFileSync(new URL("WORDNET-LICENSE.txt", OUT), licence + "\n");
 
 const byLen = [3, 4, 5, 6].map(n => n + ":" + sorted.filter(w => w.length === n).length).join(" ");
-console.log(`words: ${sorted.length} (from game list ${fromGameList}, added from WordNet ${sorted.length - fromGameList})  by length ${byLen}`);
+console.log(`words: ${sorted.length} (game list ${fromGameList}, WordNet ${fromWordNet}, Wiktionary ${sorted.length - fromGameList - fromWordNet})  by length ${byLen}`);
 console.log(`with a meaning: ${withMeaning} (${Math.round(withMeaning * 100 / sorted.length)}%)  definition files: ${Object.keys(shards).length}`);
