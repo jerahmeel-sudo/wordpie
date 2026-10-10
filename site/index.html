@@ -168,11 +168,11 @@ button { cursor: pointer; }
 .tile.small.changed { box-shadow: inset 0 -3px 0 rgba(0,0,0,.25); }
 /* Word editor: tap a tile, then a key */
 .playarea { display: grid; gap: 14px; justify-items: center; width: 100%; }
-.tiles.editor button.tile { border: 0; padding: 0; cursor: pointer; background: var(--surface); color: var(--ink);
-  box-shadow: inset 0 0 0 2px var(--line), inset 0 -5px 0 var(--line); }
-.tiles.editor button.tile:hover { box-shadow: inset 0 0 0 2px var(--muted), inset 0 -5px 0 var(--muted); }
-.tiles.editor button.tile.sel { box-shadow: inset 0 0 0 3px var(--go), inset 0 -5px 0 var(--go); color: var(--muted); }
-.tiles.editor button.tile.diff { background: var(--go); color: #fff; box-shadow: inset 0 -5px 0 rgba(0,0,0,.25); }
+.tiles.editor button.tile { border: 0; padding: 0; cursor: pointer; transition: transform .12s ease; }
+.tiles.editor button.tile:hover { transform: translateY(-3px); }
+.tiles.editor button.tile.sel { box-shadow: 0 0 0 4px var(--go), inset 0 -5px 0 var(--tile-edge); transform: translateY(-3px); }
+.tiles.editor button.tile.diff { background: var(--go); color: #fff; box-shadow: 0 0 0 4px var(--go), inset 0 -5px 0 rgba(0,0,0,.25); }
+.word-label.mine { color: var(--go); }
 .edit-hint { margin: 0; min-height: 1.4em; text-align: center; }
 .edit-hint.nudge { color: var(--stop); font-weight: 700; }
 .keys { display: grid; gap: 6px; width: 100%; max-width: 460px; }
@@ -597,12 +597,11 @@ body[data-mode="people"] .field.people-show { display: grid !important; }
       </div>
       <p class="nudge" id="nudge" aria-live="polite"></p>
       <div style="display:grid;gap:8px;width:100%">
-        <span class="eyebrow">Current word</span>
-        <div class="tiles" id="currentTiles"></div>
+        <span class="eyebrow word-label" id="wordLabel">Current word</span>
+        <div class="tiles" id="currentTiles" role="group" aria-label="Current word"></div>
       </div>
       <p class="waitnote" id="waitNote" hidden></p>
       <div class="playarea" id="playArea">
-        <div class="tiles editor" id="previewTiles" role="group" aria-label="Your word. Tap a letter to change it."></div>
         <p class="hint edit-hint" id="editHint" aria-live="polite"></p>
         <div class="keys" id="keys" aria-label="Letters"></div>
         <form class="playform" id="playForm" autocomplete="off">
@@ -807,9 +806,31 @@ body[data-mode="people"] .field.people-show { display: grid !important; }
     return ED.idx >= 0 && ED.letter ? ED.base.slice(0, ED.idx) + ED.letter + ED.base.slice(ED.idx + 1) : "";
   }
   function editorReset(base) { ED.base = base || ""; ED.idx = -1; ED.letter = ""; renderEditor(); }
-  function canEdit() { return ON.active ? onMyTurn() && !ON.busy : !!(G && G.running); }
+  function canEdit() { return ON.active ? onMyTurn() && !ON.busy : !!(G && G.running && !G.players[G.turn].cpu); }
+  // The last word shown and the letter that changed in it (for the not-your-turn view)
+  const SHOWN = { word: "", changed: -1 };
+  function paintWordDisplay(pop) {
+    const box = $("#currentTiles");
+    box.classList.remove("editor");
+    box.setAttribute("aria-label", "Current word");
+    const row = tileRow(SHOWN.word, { changed: SHOWN.changed });
+    box.replaceChildren(...row.children);
+    if (pop && SHOWN.changed >= 0 && box.children[SHOWN.changed]) box.children[SHOWN.changed].classList.add("pop");
+    $("#wordLabel").textContent = "Current word";
+    $("#wordLabel").classList.remove("mine");
+  }
   function renderEditor() {
-    const box = $("#previewTiles");
+    // Keep showing your change (but locked) while the dictionary checks it online
+    if (!canEdit() && !(ON.active && ON.busy)) {
+      if (SHOWN.word) paintWordDisplay(false);
+      $("#playBtn").disabled = true;
+      return;
+    }
+    const box = $("#currentTiles");
+    box.classList.add("editor");
+    box.setAttribute("aria-label", "Your word. Tap a letter to change it.");
+    $("#wordLabel").textContent = "Your turn: tap a letter to change";
+    $("#wordLabel").classList.add("mine");
     box.innerHTML = "";
     [...ED.base].forEach((ch, i) => {
       const b = document.createElement("button");
@@ -824,7 +845,7 @@ body[data-mode="people"] .field.people-show { display: grid !important; }
     const w = editorWord(), hint = $("#editHint");
     hint.classList.remove("nudge");
     hint.textContent = ED.idx < 0 ? "Tap the letter you want to change."
-      : w ? "Your word: " + w + ". Tap Play word."
+      : w ? ED.base + " → " + w + ". Tap Play word."
       : "Now pick a new letter for it.";
     $("#playBtn").disabled = !w || !canEdit();
     $("#undoBtn").disabled = ED.idx < 0;
@@ -1136,12 +1157,10 @@ body[data-mode="people"] .field.people-show { display: grid !important; }
   }
 
   function renderCurrent(words) {
-    const box = $("#currentTiles");
     const n = words.length;
-    const changed = n > 1 ? diffIdx(words[n - 2], words[n - 1])[0] : -1;
-    const row = tileRow(words[n - 1], { changed });
-    box.replaceChildren(...row.children);
-    if (changed >= 0) box.children[changed].classList.add("pop");
+    SHOWN.word = words[n - 1];
+    SHOWN.changed = n > 1 ? diffIdx(words[n - 2], words[n - 1])[0] : -1;
+    if (!canEdit()) paintWordDisplay(true);
   }
 
   // entries: [{word, who, meaning, pos}], oldest first
@@ -1271,7 +1290,7 @@ body[data-mode="people"] .field.people-show { display: grid !important; }
   function reject(text) {
     setMsg(text, "bad");
     sfx.bad();
-    const f = $("#previewTiles"); f.classList.remove("shake"); void f.offsetWidth; f.classList.add("shake");
+    const f = $("#currentTiles"); f.classList.remove("shake"); void f.offsetWidth; f.classList.add("shake");
   }
 
   $("#playForm").addEventListener("submit", e => {
