@@ -346,6 +346,24 @@ body[data-mode="cpu"] .field.cpu-show { display: grid !important; }
   box-shadow: 0 10px 30px rgba(0,0,0,.25); animation: pop .3s ease;
 }
 
+/* Emoji reactions (online) */
+.reactbar { display: flex; justify-content: center; gap: 8px; flex-wrap: wrap; }
+.react {
+  width: 50px; height: 50px; border-radius: 50%; border: 1px solid var(--line); background: var(--surface);
+  font-size: 1.5rem; line-height: 1; padding: 0; touch-action: manipulation; transition: transform .1s;
+}
+.react:hover { border-color: var(--muted); }
+.react:active { transform: scale(.88); }
+.floatlayer { position: fixed; inset: 0; pointer-events: none; z-index: 15; overflow: hidden; }
+.floaty { position: absolute; bottom: 16%; display: grid; justify-items: center; gap: 2px; animation: floatUp 2.6s ease-out forwards; }
+.floaty .e { font-size: 2.8rem; line-height: 1; }
+.floaty .n { font-size: .72rem; font-weight: 700; color: var(--ink); background: var(--surface); border: 1px solid var(--line); padding: 1px 8px; border-radius: 999px; white-space: nowrap; }
+@keyframes floatUp {
+  0% { transform: translateY(0) scale(.5); opacity: 0; }
+  12% { transform: translateY(-24px) scale(1.15); opacity: 1; }
+  100% { transform: translateY(-48vh) scale(1); opacity: 0; }
+}
+
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; }
 }
@@ -529,6 +547,8 @@ body[data-mode="cpu"] .field.cpu-show { display: grid !important; }
       </div>
     </div>
 
+    <div class="reactbar online-only" id="reactBar" role="group" aria-label="Send a reaction" hidden></div>
+
     <div class="panel chain">
       <h3>Word chain <span id="chainCount"></span></h3>
       <ol id="chainList"></ol>
@@ -536,6 +556,7 @@ body[data-mode="cpu"] .field.cpu-show { display: grid !important; }
   </section>
 
   <div class="toast" id="toast" role="status" hidden></div>
+  <div class="floatlayer" id="floatLayer" aria-hidden="true"></div>
 
   <div class="sheet" id="sheet" hidden>
     <div class="card" id="sheetCard" role="dialog" aria-modal="true" aria-labelledby="sheetTitle"></div>
@@ -1659,7 +1680,50 @@ body[data-mode="cpu"] .field.cpu-show { display: grid !important; }
     } finally { done(); }
   }
 
+  /* --- emoji reactions --- */
+  const REACTIONS = ["😂", "🔥", "😱", "👏", "🤔", "😬"];
+  let lastReactAt = 0;
+  REACTIONS.forEach(e => {
+    const b = document.createElement("button");
+    b.type = "button"; b.className = "react"; b.textContent = e;
+    b.setAttribute("aria-label", "React " + e);
+    b.addEventListener("click", () => sendReaction(e));
+    $("#reactBar").appendChild(b);
+  });
+  function floatEmoji(e, name) {
+    const el = document.createElement("div");
+    el.className = "floaty";
+    el.style.left = (8 + Math.random() * 76) + "%";
+    const em = document.createElement("span"); em.className = "e"; em.textContent = e;
+    const nm = document.createElement("span"); nm.className = "n"; nm.textContent = name;
+    el.append(em, nm);
+    $("#floatLayer").appendChild(el);
+    setTimeout(() => el.remove(), 2700);
+  }
+  async function sendReaction(e) {
+    if (!ON.active || Date.now() - lastReactAt < 600) return;
+    lastReactAt = Date.now();
+    const id = rid();
+    ON.reactSeen[ON.uid] = id;                 // shown right away here; don't show it again when it echoes back
+    floatEmoji(e, "You");
+    try { await ON.ref.child("state/reacts/" + ON.uid).set({ e, id, at: TS() }); }
+    catch (err) { console.error(err); }
+  }
+  // Float any reactions that arrived since the last update (not old ones when you first join)
+  function handleReacts(s) {
+    const reacts = s.reacts || {};
+    Object.keys(reacts).forEach(u => {
+      const r = reacts[u];
+      if (!r || !r.id || ON.reactSeen[u] === r.id) return;
+      ON.reactSeen[u] = r.id;
+      const fresh = ON.reactsReady && (!r.at || Math.abs(serverNow() - r.at) < 6000);
+      if (fresh && REACTIONS.includes(r.e)) floatEmoji(r.e, onName(u));
+    });
+    ON.reactsReady = true;
+  }
+
   function enterRoom(code) {
+    ON.reactSeen = {}; ON.reactsReady = false;
     ON.active = true; ON.code = code; ON.seenFirst = false; ON.turnKey = null; ON.sheet = null; ON.chainKey = null; ON.lastHost = null; ON.claimKey = null;
     ON.ref = ON.db.ref("rooms/" + code);
     const pres = ON.ref.child("presence/" + ON.uid);
@@ -1981,6 +2045,7 @@ body[data-mode="cpu"] .field.cpu-show { display: grid !important; }
       renderOnGame(r, s);
     }
     handleEvent(s);
+    handleReacts(s);
   }
 
   function renderLobby(r) {
@@ -2085,6 +2150,7 @@ body[data-mode="cpu"] .field.cpu-show { display: grid !important; }
     const showForm = s.status === "playing" && curUid === ON.uid && !out[ON.uid];
     $("#playArea").hidden = !showForm;
     $(".giveup-row").hidden = !showForm;
+    $("#reactBar").hidden = s.status !== "playing";
     renderEditor();
     const note = $("#waitNote");
     note.hidden = showForm && !s.checking;
