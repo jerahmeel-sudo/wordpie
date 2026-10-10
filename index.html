@@ -274,6 +274,9 @@ body[data-invited="1"] .create-only { display: none !important; }
 .board li.lead { background: var(--tile); color: var(--tile-ink); }
 .board li.lead .rank { color: var(--tile-ink); }
 .lenpick { display: grid; gap: 8px; justify-items: center; }
+.sharerow { display: flex; gap: 8px; flex-wrap: wrap; justify-content: center; width: 100%; }
+.sharerow .btn { flex: 1 1 140px; text-decoration: none; display: inline-flex; align-items: center; justify-content: center; gap: 6px; }
+.btn.wa { background: #1FA855; color: #fff; }
 .lenpick .chips { justify-content: center; }
 .pchip .wins { font-size: .8rem; font-weight: 700; }
 .lobby-players li { display: flex; align-items: center; gap: 10px; padding: 8px 10px; border-radius: 10px; background: var(--bg); }
@@ -1194,6 +1197,92 @@ body[data-invited="1"] .create-only { display: none !important; }
     box.append(t, ol);
     return box;
   }
+  /* ---------- share my result ---------- */
+  // info: { headline, words: [chain words, oldest first], players }
+  function resultText(info) {
+    const w = info.words, played = w.length - 1;
+    const chain = w.length <= 7 ? w.join(" → ") : w.slice(0, 3).join(" → ") + " → … → " + w.slice(-2).join(" → ");
+    return info.headline + "\n" + chain + "\n" + played + (played === 1 ? " word" : " words") + " · " + info.players + " players" +
+      "\nThink you can beat that? 👉 https://wordpie.app";
+  }
+  // Square result picture in the game's style (1080 x 1080)
+  async function resultImage(info) {
+    const FONT = '"Bricolage Grotesque", "Arial Black", sans-serif', BODYF = '"Atkinson Hyperlegible", Arial, sans-serif';
+    try { await document.fonts.load("800 64px " + FONT.split(",")[0]); } catch (e) {}
+    const cv = document.createElement("canvas"); cv.width = cv.height = 1080;
+    const ctx = cv.getContext("2d");
+    const P = { bg: "#E7EEE8", panel: "#F8FBF7", line: "#C6D3CA", ink: "#15241D", muted: "#5A6B62", tile: "#F5C443", tileInk: "#2B1F05", edge: "#C2922A", go: "#1E8657", goEdge: "#14663F" };
+    const rr = (x, y, w, h, r) => { ctx.beginPath(); ctx.moveTo(x + r, y); ctx.arcTo(x + w, y, x + w, y + h, r); ctx.arcTo(x + w, y + h, x, y + h, r); ctx.arcTo(x, y + h, x, y, r); ctx.arcTo(x, y, x + w, y, r); ctx.closePath(); };
+    const tileAt = (x, y, size, ch, green) => {
+      const r = size * .16, e = size * .09, h = size * 1.05;
+      ctx.fillStyle = green ? P.goEdge : P.edge; rr(x, y, size, h, r); ctx.fill();
+      ctx.fillStyle = green ? P.go : P.tile; rr(x, y, size, h - e, r); ctx.fill();
+      ctx.fillStyle = green ? "#fff" : P.tileInk; ctx.font = "800 " + Math.round(size * .56) + "px " + FONT;
+      ctx.textAlign = "center"; ctx.textBaseline = "middle"; ctx.fillText(ch, x + size / 2, y + (h - e) / 2 + size * .03);
+    };
+    const rowAt = (x, y, size, gap, word, changed) => [...word].forEach((ch, i) => tileAt(x + i * (size + gap), y, size, ch, i === changed));
+    ctx.fillStyle = P.bg; ctx.fillRect(0, 0, 1080, 1080);
+    ctx.fillStyle = P.panel; rr(56, 56, 968, 968, 40); ctx.fill(); ctx.strokeStyle = P.line; ctx.lineWidth = 2; ctx.stroke();
+    // brand
+    rowAt(116, 116, 54, 8, "PIE", 1);
+    ctx.fillStyle = P.ink; ctx.textAlign = "left"; ctx.textBaseline = "alphabetic"; ctx.font = "800 58px " + FONT;
+    ctx.fillText("Wordpie", 316, 166);
+    // headline, wrapped (no emoji: not every phone draws them on a canvas)
+    const head = info.headline.replace(/[\u{1F000}-\u{1FFFF}\u2600-\u27BF\uFE0F]/gu, "").trim();
+    ctx.font = "800 68px " + FONT; ctx.fillStyle = P.ink;
+    const lines = []; let line = "";
+    head.split(" ").forEach(word => { const t = line ? line + " " + word : word; if (ctx.measureText(t).width > 840 && line) { lines.push(line); line = word; } else line = t; });
+    if (line) lines.push(line);
+    lines.slice(0, 2).forEach((l, i) => ctx.fillText(l, 120, 290 + i * 80));
+    // the chain: up to 4 rows of tiles; long chains show the start, a gap, and the end
+    const w = info.words;
+    const show = w.length <= 4 ? w.map((x, i) => i) : [0, -1, w.length - 2, w.length - 1];
+    let y = lines.length > 1 ? 420 : 350;
+    const len = w[0].length, gap = 10, size = Math.min(92, Math.floor((840 - gap * (len - 1)) / len));
+    show.forEach(i => {
+      if (i === -1) {
+        ctx.fillStyle = P.muted; ctx.font = "700 34px " + BODYF; ctx.textAlign = "left";
+        ctx.fillText("… " + (w.length - 3) + " more words …", 120, y + 36); y += 64; return;
+      }
+      const changed = i > 0 ? diffIdx(w[i - 1], w[i])[0] : -1;
+      rowAt(120, y, size, gap, w[i], changed); y += size * 1.05 + 20;
+    });
+    // footer
+    const played = w.length - 1;
+    ctx.textAlign = "left"; ctx.fillStyle = P.muted; ctx.font = "700 34px " + BODYF;
+    ctx.fillText(played + (played === 1 ? " word" : " words") + " played · " + info.players + " players", 120, 920);
+    ctx.fillStyle = P.go; ctx.font = "800 46px " + FONT;
+    ctx.fillText("Beat that? wordpie.app", 120, 980);
+    return await new Promise(res => cv.toBlob(res, "image/png"));
+  }
+  async function shareResult(info) {
+    const text = resultText(info);
+    try {
+      const blob = await resultImage(info);
+      const fileObj = blob && new File([blob], "wordpie-result.png", { type: "image/png" });
+      if (fileObj && navigator.canShare && navigator.canShare({ files: [fileObj] })) {
+        await navigator.share({ files: [fileObj], text });
+        track("result_share", { method: "share_image" }); return;
+      }
+      if (navigator.share) { await navigator.share({ text }); track("result_share", { method: "share_text" }); return; }
+    } catch (e) {
+      if (e && e.name === "AbortError") return;           // they closed the share menu
+    }
+    try { await navigator.clipboard.writeText(text); toast("Result copied. Paste it anywhere to share."); track("result_share", { method: "copy" }); }
+    catch (e) { toast("Couldn't open sharing here. Try the WhatsApp button."); }
+  }
+  // The two share buttons for an end-of-game screen
+  function shareRow(info) {
+    const row = document.createElement("div"); row.className = "sharerow";
+    const b = document.createElement("button"); b.type = "button"; b.className = "btn quiet"; b.textContent = "📤 Share result";
+    b.addEventListener("click", () => shareResult(info));
+    const wa = document.createElement("a"); wa.className = "btn wa"; wa.textContent = "WhatsApp";
+    wa.href = "https://wa.me/?text=" + encodeURIComponent(resultText(info)); wa.target = "_blank"; wa.rel = "noopener";
+    wa.addEventListener("click", () => track("result_share", { method: "whatsapp" }));
+    row.append(b, wa);
+    return row;
+  }
+
   // Word-length buttons for the next game; calls onPick(len)
   function lenPicker(current, onPick) {
     const box = document.createElement("div"); box.className = "lenpick";
@@ -1227,6 +1316,10 @@ body[data-invited="1"] .create-only { display: none !important; }
     if (winner) winner.wins = (winner.wins || 0) + 1;
     let nextLen = G.start.length;
     const extra = document.createElement("div"); extra.className = "endextra";
+    extra.appendChild(shareRow({
+      headline: winner ? winner.name + " won our Wordpie game! 🏆" : "Nobody won our Wordpie game 😅",
+      words: G.chain.map(c => c.word), players: G.players.length
+    }));
     const board = winsBoard(G.players.map(p => [p.name, p.wins || 0]), G.games);
     if (board) extra.appendChild(board);
     extra.appendChild(lenPicker(nextLen, v => { nextLen = v; }));
@@ -1873,6 +1966,10 @@ body[data-invited="1"] .create-only { display: none !important; }
         word: onWord(),
         extra: (() => {
           const box = document.createElement("div"); box.className = "endextra";
+          box.appendChild(shareRow({
+            headline: won ? "I won at Wordpie! 🏆" : s.winner ? onName(s.winner) + " won our Wordpie game! 🏆" : "Nobody survived our Wordpie game 😅",
+            words: chain.map(c => c.w), players: order.length
+          }));
           const board = winsBoard(order.map(u => [onName(u), (s.wins || {})[u] || 0]), s.games || 1);
           if (board) box.appendChild(board);
           if (isHost) box.appendChild(lenPicker(ON.nextLen, v => { ON.nextLen = v; }));
