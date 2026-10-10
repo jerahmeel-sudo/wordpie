@@ -336,6 +336,12 @@ body[data-mode="cpu"] .field.cpu-show { display: grid !important; }
   100% { transform: translateY(-48vh) scale(1); opacity: 0; }
 }
 
+/* Small footer links */
+.sitefoot { display: flex; flex-wrap: wrap; justify-content: center; gap: 4px 8px; padding-block: 8px 0; font-size: .8rem; color: var(--muted); text-align: center; }
+.sitefoot a { color: var(--muted); }
+.sitefoot a:hover { color: var(--ink); }
+.sitefoot .email { user-select: all; overflow-wrap: anywhere; }
+
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; }
 }
@@ -536,6 +542,16 @@ body[data-mode="cpu"] .field.cpu-show { display: grid !important; }
       <ol id="chainList"></ol>
     </div>
   </section>
+
+  <footer class="sitefoot">
+    <a href="https://wordpie.app/how-to-play">How to play</a>
+    <span aria-hidden="true">·</span>
+    <a href="https://wordpie.app/privacy">Privacy</a>
+    <span aria-hidden="true">·</span>
+    <span>Contact: <span class="email">hello@strakkos.com</span></span>
+    <span aria-hidden="true">·</span>
+    <span>© 2026 Wordpie</span>
+  </footer>
 
   <div class="toast" id="toast" role="status" hidden></div>
   <div class="floatlayer" id="floatLayer" aria-hidden="true"></div>
