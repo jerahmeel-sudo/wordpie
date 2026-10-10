@@ -78,6 +78,15 @@ The hosted site sends page views and these game events to Google Analytics prope
 
 No player names or words are sent. To see live activity, go to **Reports → Realtime** in Google Analytics. Events show up in the main reports within about a day.
 
+## Playing against the computer
+
+In "Vs computer" mode, one player takes turns with a computer opponent at Easy, Medium or Hard.
+
+- The computer finds its moves with the free **Datamuse** word search (`api.datamuse.com/words?sp=?ell&md=f`). Each turn it searches one pattern per letter position, so 4 searches for a 4-letter word. It skips rare words and anything already played.
+- **Easy** plays common words and sometimes gets stuck. **Medium** plays any normal word and rarely gets stuck. **Hard** never gives up, and looks one move ahead to pick the word that leaves the player the fewest common replies.
+- The computer's words go through the same dictionary check as the player's, and their meanings are shown.
+- If Datamuse can't be reached, the computer picks from the game's built-in starting-word lists instead.
+
 ## How words are checked
 
 1. **Wiktionary** is checked first. Plurals and verb forms count. Proper nouns, abbreviations and obsolete spellings don't.

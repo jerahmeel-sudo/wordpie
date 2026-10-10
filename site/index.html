@@ -280,6 +280,9 @@ button { cursor: pointer; }
 body:not([data-mode="online"]) .online-only { display: none !important; }
 body[data-mode="online"] .local-only { display: none !important; }
 body[data-invited="1"] .create-only { display: none !important; }
+body:not([data-mode="cpu"]) .cpu-only { display: none !important; }
+body[data-mode="cpu"] .not-cpu { display: none !important; }
+body[data-mode="cpu"] .field.cpu-show { display: grid !important; }
 
 .textin { width: 100%; border: 1px solid var(--line); background: var(--bg); border-radius: 8px; padding: 10px 12px; }
 .joinbox input { text-transform: uppercase; letter-spacing: .25em; font: 800 1.2rem var(--display); }
@@ -375,7 +378,7 @@ body[data-invited="1"] .create-only { display: none !important; }
         <div class="chips" id="modeChips"></div>
       </div>
 
-      <div class="field online-only" id="nameField">
+      <div class="field online-only cpu-show" id="nameField">
         <label for="onlineName">Your name</label>
         <input id="onlineName" class="textin" maxlength="16" autocomplete="nickname" placeholder="e.g. Ada">
       </div>
@@ -391,7 +394,13 @@ body[data-invited="1"] .create-only { display: none !important; }
 
       <p class="divider online-only create-only" id="orNew"><span>or start a new game</span></p>
 
-      <div class="field create-only" id="playersField">
+      <div class="field cpu-only">
+        <span class="label">Computer level</span>
+        <div class="chips" id="cpuChips"></div>
+        <p class="hint" id="cpuHint"></p>
+      </div>
+
+      <div class="field create-only not-cpu" id="playersField">
         <span class="label" id="countLabel">Players</span>
         <div class="stepper" role="group" aria-labelledby="countLabel">
           <button type="button" id="countMinus" aria-label="Fewer players">−</button>
@@ -431,7 +440,8 @@ body[data-invited="1"] .create-only { display: none !important; }
     <aside class="panel rules">
       <p class="eyebrow">How a turn works</p>
       <ol>
-        <li class="local-only">Pass the device to the player whose name is shown. They tap <b>Start my turn</b> and the clock begins.</li>
+        <li class="local-only not-cpu">Pass the device to the player whose name is shown. They tap <b>Start my turn</b> and the clock begins.</li>
+        <li class="cpu-only">You and the computer take turns. Your clock starts as soon as it's your turn.</li>
         <li class="online-only">Everyone plays on their own phone. When it's your turn, your phone beeps and your clock starts.</li>
         <li>Tap the letter you want to change, then pick its new letter. Tap <b>Play word</b>.</li>
         <li>No repeats. A word already in the chain can't be played again.</li>
@@ -610,6 +620,86 @@ body[data-invited="1"] .create-only { display: none !important; }
     e.currentTarget.setAttribute("aria-pressed", cfg.sound);
   });
 
+  /* ---------- the computer player ---------- */
+  const CPU_LEVELS = {
+    easy:   { label: "Easy",   minF: 8,   think: [4000, 8000], fail: played => Math.min(.5, .12 + .06 * played),
+              hint: "Plays common words and sometimes gets stuck. Good for warming up." },
+    medium: { label: "Medium", minF: 1.5, think: [2500, 5500], fail: played => Math.min(.25, .03 + .02 * played),
+              hint: "Knows lots of words and rarely gets stuck." },
+    hard:   { label: "Hard",   minF: .6,  think: [1500, 3500], fail: () => 0,
+              hint: "Quick, never gives up, and picks words that leave you the fewest moves." }
+  };
+  cfg.level = "medium";
+  function renderLevels() {
+    renderChips($("#cpuChips"), ["easy", "medium", "hard"], cfg.level, k => CPU_LEVELS[k].label, k => { cfg.level = k; renderLevels(); });
+    $("#cpuHint").textContent = CPU_LEVELS[cfg.level].hint;
+  }
+  const sleep = ms => new Promise(r => setTimeout(r, ms));
+  const patternCache = new Map();
+  // Every real word one letter away from `word`: [{w, f}] where f = how common it is (uses per million words)
+  async function cpuCandidates(word) {
+    const pats = [...word].map((_, i) => (word.slice(0, i) + "?" + word.slice(i + 1)).toLowerCase());
+    let found = [];
+    try {
+      const lists = await Promise.all(pats.map(async p => {
+        if (!patternCache.has(p)) patternCache.set(p, await getJSON("https://api.datamuse.com/words?sp=" + p + "&md=f&max=80") || []);
+        return patternCache.get(p);
+      }));
+      found = lists.flat().map(x => {
+        const tag = (x.tags || []).find(t => t.startsWith("f:"));
+        return { w: String(x.word || "").toUpperCase(), f: tag ? parseFloat(tag.slice(2)) : 0 };
+      });
+    } catch (e) {
+      // Datamuse unreachable: fall back to the game's own word lists
+      found = Object.values(STARTERS).flat().map(w => ({ w, f: 10 }));
+    }
+    const seen = new Set();
+    return found.filter(c => /^[A-Z]+$/.test(c.w) && c.w.length === word.length && diffIdx(word, c.w).length === 1 &&
+      !seen.has(c.w) && seen.add(c.w));
+  }
+  async function cpuChoose(word, used, level, played) {
+    const L = CPU_LEVELS[level];
+    if (Math.random() < L.fail(played)) return null;            // "can't think of one"
+    let cands = (await cpuCandidates(word)).filter(c => !used.has(c.w) && c.f >= L.minF);
+    if (!cands.length) return null;
+    let order;
+    if (level === "hard") {
+      // Look one move ahead: prefer words that leave the player the fewest common replies
+      const top = [...cands].sort((a, b) => b.f - a.f).slice(0, 6);
+      const scored = await Promise.all(top.map(async c => {
+        const next = (await cpuCandidates(c.w)).filter(x => x.f >= 2 && !used.has(x.w) && x.w !== c.w && x.w !== word);
+        return { c, replies: next.length };
+      }));
+      order = scored.sort((a, b) => a.replies - b.replies).map(x => x.c);
+    } else if (level === "easy") {
+      order = [...cands].sort((a, b) => b.f - a.f).slice(0, 4).sort(() => Math.random() - .5);
+    } else {
+      order = [...cands].sort(() => Math.random() - .5);
+    }
+    for (const c of order.slice(0, 4)) {
+      if (cfg.judge === "trust") return { w: c.w };
+      try {
+        const d = await lookupWord(c.w);
+        if (d.found) return { w: c.w, meaning: d.meaning, pos: d.pos };
+      } catch (e) { return { w: c.w }; }                         // dictionary unreachable: trust Datamuse
+    }
+    return null;
+  }
+  async function cpuTurn() {
+    const game = G, turn = G.turn, word = current();
+    const L = CPU_LEVELS[G.level];
+    const think = Math.min(cfg.timer * 1000 * .55, L.think[0] + Math.random() * (L.think[1] - L.think[0]));
+    const t0 = Date.now();
+    let choice = null;
+    try { choice = await cpuChoose(word, G.used, G.level, G.players[turn].words); } catch (e) { console.error(e); }
+    await sleep(Math.max(0, think - (Date.now() - t0)));
+    if (G !== game || G.turn !== turn || !G.running) return;    // game ended or was left meanwhile
+    stopClock();
+    if (!choice) { eliminate(turn, "couldn't think of a word"); return; }
+    toast("🤖 The computer played " + choice.w + (choice.meaning ? ": " + shorten(choice.meaning, 80) : ""));
+    commit(choice.w, { meaning: choice.meaning || "", pos: choice.pos || "" });
+  }
+
   /* ---------- word editor: tap a tile, then pick its new letter ---------- */
   const ED = { base: "", idx: -1, letter: "" };
   const KEY_ROWS = ["QWERTYUIOP", "ASDFGHJKL", "ZXCVBNM"];
@@ -743,11 +833,11 @@ body[data-invited="1"] .create-only { display: none !important; }
     trust: { label: "No checks", hint: "Any word that changes one letter is accepted. Argue it out loud." }
   };
   function renderJudge() {
-    const keys = mode === "online" ? ["dict", "trust"] : ["dict", "table", "trust"];
+    const keys = mode === "local" ? ["dict", "table", "trust"] : ["dict", "trust"];
     if (!keys.includes(cfg.judge)) cfg.judge = "dict";
     renderChips($("#judgeChips"), keys, cfg.judge, k => JUDGES[k].label, k => { cfg.judge = k; renderJudge(); });
     let hint = JUDGES[cfg.judge].hint;
-    if (cfg.judge === "dict") hint += mode === "online"
+    if (cfg.judge === "dict") hint += mode !== "local"
       ? " If the dictionary can't be reached, the word is accepted."
       : aiState === "ready"
         ? " If the dictionary can't be reached, Claude checks the word instead."
@@ -861,6 +951,12 @@ body[data-invited="1"] .create-only { display: none !important; }
       return;
     }
     $("#setupErr").textContent = "";
+    if (mode === "cpu") {
+      const me = $("#onlineName").value.trim().slice(0, 16) || "You";
+      if (me !== "You") store.set("wordpie.name", me);
+      newGame([{ name: me, out: false, words: 0 }, { name: "Computer", cpu: true, out: false, words: 0 }], w);
+      return;
+    }
     const players = [];
     for (let i = 0; i < cfg.count; i++) {
       const n = (cfg.names[i] || "").trim() || "Player " + (i + 1);
@@ -873,6 +969,7 @@ body[data-invited="1"] .create-only { display: none !important; }
   function newGame(players, start, games = 1) {
     G = {
       players, start, games,
+      level: players.some(p => p.cpu) ? cfg.level : null,   // set when playing the computer
       chain: [{ word: start, by: -1 }],
       used: new Set([start]),
       turn: 0,
@@ -886,7 +983,7 @@ body[data-invited="1"] .create-only { display: none !important; }
     $("#quitBtn").hidden = false;
     renderAll();
     handoff();
-    track("game_start", { mode: "one_phone", players: players.length, turn_seconds: cfg.timer, word_check: cfg.judge });
+    track("game_start", { mode: G.level ? "vs_computer" : "one_phone", players: players.length, turn_seconds: cfg.timer, word_check: cfg.judge, level: G.level || "" });
   }
 
   const current = () => ON.active ? onWord() : G.chain[G.chain.length - 1].word;
@@ -911,6 +1008,15 @@ body[data-invited="1"] .create-only { display: none !important; }
     $("#turnName").textContent = G.players[G.turn].name;
     setMsg("");
     renderClock();
+    const cpuTurn = !!G.players[G.turn].cpu;
+    $("#playArea").hidden = cpuTurn;
+    $(".giveup-row").hidden = cpuTurn;
+    const note = $("#waitNote");
+    note.hidden = !cpuTurn;
+    if (cpuTurn) {
+      const dots = document.createElement("span"); dots.className = "dots"; dots.innerHTML = "<span></span><span></span><span></span>";
+      note.replaceChildren(dots, document.createTextNode("🤖 The computer is thinking…"));
+    }
   }
 
   function renderPlayers() {
@@ -919,7 +1025,7 @@ body[data-invited="1"] .create-only { display: none !important; }
     G.players.forEach((p, i) => {
       const c = document.createElement("div");
       c.className = "pchip" + (p.out ? " out" : "") + (i === G.turn && !p.out ? " now" : "");
-      const av = document.createElement("span"); av.className = "av"; av.textContent = p.name[0].toUpperCase();
+      const av = document.createElement("span"); av.className = "av"; av.textContent = p.cpu ? "🤖" : p.name[0].toUpperCase();
       const nm = document.createElement("span"); nm.textContent = p.name;
       const ct = document.createElement("span"); ct.className = "ct"; ct.textContent = p.out ? "out" : p.words + (p.words === 1 ? " word" : " words");
       c.append(av, nm, ct);
@@ -1033,6 +1139,23 @@ body[data-invited="1"] .create-only { display: none !important; }
     G.running = false;
     renderAll();
     const p = G.players[G.turn];
+    if (G.level) {
+      const go = () => { hideSheet(); startClock(); renderEditor(); if (p.cpu) cpuTurn(); };
+      if (!G.introShown) {                     // one "ready?" screen at the start of each game
+        G.introShown = true;
+        showSheet({
+          eyebrow: "You vs the computer · " + CPU_LEVELS[G.level].label,
+          title: "Ready, " + G.players[0].name + "?",
+          body: "You go first. Change one letter of " + current() + ". You have " + fmtTime(cfg.timer) + " per turn.",
+          word: current(),
+          actions: [{ label: "Start", kind: "go", run: go }]
+        });
+        return;
+      }
+      if (G.final && !p.cpu) toast("The computer is out. Play one real word to win!");
+      go();
+      return;
+    }
     showSheet({
       eyebrow: G.final ? "Final turn" : "Pass the device",
       title: p.name + ", you're up",
@@ -1081,6 +1204,7 @@ body[data-invited="1"] .create-only { display: none !important; }
   });
 
   function tableFallback(w, cur, changed, note) {
+    if (G && G.level) { hideSheet(); commit(w, { meaning: "", pos: "" }); return; }
     showSheet({
       eyebrow: "Table check · clock paused",
       title: "Is " + w + " a real word?",
@@ -1101,7 +1225,7 @@ body[data-invited="1"] .create-only { display: none !important; }
       word: w, changed,
       extra: (() => { const s = document.createElement("div"); s.className = "dots"; s.innerHTML = "<span></span><span></span><span></span>"; return s; })(),
       body: "Looking it up in the dictionary.",
-      actions: [{ label: "Let the players decide", kind: "quiet", run: () => { ctl.stale = true; tableFallback(w, cur, changed, ""); } }]
+      actions: G.level ? [] : [{ label: "Let the players decide", kind: "quiet", run: () => { ctl.stale = true; tableFallback(w, cur, changed, ""); } }]
     });
     let res;
     try {
@@ -1133,7 +1257,7 @@ body[data-invited="1"] .create-only { display: none !important; }
         title: w + " is a word",
         word: w, changed,
         extra: verdictBox("ok", res.pos, res.meaning || "A real English word."),
-        actions: [{ label: "Next player", kind: "go", run: () => { hideSheet(); commit(w, res); } }]
+        actions: [{ label: G.level ? "Computer's turn" : "Next player", kind: "go", run: () => { hideSheet(); commit(w, res); } }]
       });
     } else {
       sfx.bad();
@@ -1143,9 +1267,9 @@ body[data-invited="1"] .create-only { display: none !important; }
         title: w + " isn't a word",
         word: w, changed,
         extra: verdictBox("no", "", res.reason || "It isn't in the dictionary."),
-        body: "Everyone gets one try, so " + p.name + " is out. If you all agree it's a real word, you can accept it instead.",
+        body: G.level ? "You only get one try, so you're out." : "Everyone gets one try, so " + p.name + " is out. If you all agree it's a real word, you can accept it instead.",
         actions: [
-          { label: "We accept it anyway", kind: "quiet", run: () => { hideSheet(); commit(w, { meaning: "", pos: "", overruled: true }); } },
+          ...(G.level ? [] : [{ label: "We accept it anyway", kind: "quiet", run: () => { hideSheet(); commit(w, { meaning: "", pos: "", overruled: true }); } }]),
           { label: p.name + " is out", kind: "go", run: () => { hideSheet(); eliminate(G.turn, "played " + w + ", which isn't a word"); } }
         ]
       });
@@ -1352,7 +1476,9 @@ body[data-invited="1"] .create-only { display: none !important; }
     let nextLen = G.start.length;
     const extra = document.createElement("div"); extra.className = "endextra";
     extra.appendChild(shareRow({
-      headline: winner ? winner.name + " won our Wordpie game! 🏆" : "Nobody won our Wordpie game 😅",
+      headline: G.level
+        ? (winner ? (winner.cpu ? "The computer beat me at Wordpie 🤖 (" + CPU_LEVELS[G.level].label + ")" : "I beat the computer at Wordpie! 🏆 (" + CPU_LEVELS[G.level].label + ")") : "Me vs the computer at Wordpie: nobody won 😅")
+        : (winner ? winner.name + " won our Wordpie game! 🏆" : "Nobody won our Wordpie game 😅"),
       words: G.chain.map(c => c.word), players: G.players.length
     }));
     const board = winsBoard(G.players.map(p => [p.name, p.wins || 0]), G.games);
@@ -1365,7 +1491,7 @@ body[data-invited="1"] .create-only { display: none !important; }
     showSheet({
       eyebrow: winner ? "Last one standing" : "Draw",
       badge: winner ? "★" : "=",
-      title: winner ? winner.name + " wins!" : "Nobody wins",
+      title: winner ? (G.level ? (winner.cpu ? "The computer wins" : "You beat the computer!") : winner.name + " wins!") : "Nobody wins",
       body: gameSummary(G.start, current(), G.chain.length - 1, G.players.map(p => [p.name, p.words])),
       word: current(),
       extra,
@@ -1373,7 +1499,7 @@ body[data-invited="1"] .create-only { display: none !important; }
         { label: "New setup", kind: "quiet", run: () => { hideSheet(); toSetup(); } },
         { label: "Rematch", kind: "go", run: () => {
           hideSheet();
-          newGame(G.players.map(p => ({ name: p.name, out: false, words: 0, wins: p.wins || 0 })), randomStart(nextLen, G.start), G.games + 1);
+          newGame(G.players.map(p => ({ name: p.name, cpu: p.cpu, out: false, words: 0, wins: p.wins || 0 })), randomStart(nextLen, G.start), G.games + 1);
         } }
       ]
     });
@@ -1454,10 +1580,12 @@ body[data-invited="1"] .create-only { display: none !important; }
   function setMode(m) {
     mode = m;
     document.body.dataset.mode = m;
-    renderChips($("#modeChips"), ["local", "online"], m,
-      k => k === "local" ? "On one phone" : "Online with friends", setMode);
-    $("#startBtn").textContent = m === "online" ? "Create game and get invite link" : "Start game";
+    const modes = ONLINE_OK ? ["local", "cpu", "online"] : ["local", "cpu"];
+    renderChips($("#modeChips"), modes, m,
+      k => k === "local" ? "On one phone" : k === "cpu" ? "Vs computer" : "Online with friends", setMode);
+    $("#startBtn").textContent = m === "online" ? "Create game and get invite link" : m === "cpu" ? "Play against the computer" : "Start game";
     renderJudge();
+    renderLevels();
   }
 
   function needName(errEl) {
@@ -2153,7 +2281,7 @@ body[data-invited="1"] .create-only { display: none !important; }
   /* ---------- boot ---------- */
   renderNames(); renderTimer(); renderLen(); renderDemo();
   $("#onlineName").value = store.get("wordpie.name") || "";
-  $("#modeField").hidden = !ONLINE_OK;
+  $("#modeField").hidden = false;
   setMode("local");
   if (ONLINE_OK) {
     const m = location.pathname.match(/\/join\/([A-Za-z0-9]{4,6})\/?$/);
