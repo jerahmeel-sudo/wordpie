@@ -161,6 +161,12 @@ const fromWordNet = words.size - fromGameList;
 const WIKT_FILE = new URL("data/wiktionary.json", import.meta.url);
 const wikt = existsSync(WIKT_FILE) ? JSON.parse(readFileSync(WIKT_FILE, "utf8")) : { add: {}, fill: {} };
 for (const w of Object.keys(wikt.add || {})) if (ok(w)) words.add(w);
+
+/* ---------- words added by hand after player reports (tools/data/extra-words.json) ---------- */
+const EXTRA_FILE = new URL("data/extra-words.json", import.meta.url);
+const extra = existsSync(EXTRA_FILE) ? JSON.parse(readFileSync(EXTRA_FILE, "utf8")) : {};
+delete extra._about;
+for (const w of Object.keys(extra)) if (ok(w)) words.add(w);
 const wiktMeaning = w => {
   const e = (wikt.add || {})[w] || (wikt.fill || {})[w];
   if (!e) return null;
@@ -175,14 +181,15 @@ mkdirSync(new URL("def/", OUT), { recursive: true });
 const sorted = [...words].sort();
 // Words only Wiktionary added (KINS, AWAYS…) count for players but are scored rare (0), so the computer,
 // which never plays rare words, doesn't pick odd ones
-const finalScore = w => ((wikt.add || {})[w] ? 0 : score(w));
+const finalScore = w => ((wikt.add || {})[w] || extra[w] ? 0 : score(w));
 writeFileSync(new URL("words.txt", OUT), sorted.map(w => w + " " + finalScore(w)).join("\n") + "\n");
 const shards = {};
 let withMeaning = 0;
 for (const w of sorted) {
   const e = base.get(w), form = describeForm(w);
   // A rarely-used entry of its own (BAKED as an adjective) loses to "past tense of bake"
-  const d = e && !(form && e.weight < 1 && form.weight >= 1) ? [e.pos, e.meaning] : form ? [form.pos, form.text] : wiktMeaning(w);
+  const d = extra[w] ? [extra[w][0], extra[w][1]]                       // hand-added words use their own meaning
+    : e && !(form && e.weight < 1 && form.weight >= 1) ? [e.pos, e.meaning] : form ? [form.pos, form.text] : wiktMeaning(w);
   if (!d) continue;
   withMeaning++;
   (shards[w.slice(0, 2)] = shards[w.slice(0, 2)] || {})[w] = d;
@@ -194,5 +201,5 @@ const licence = read(join(WN, "data.noun")).split("\n").filter(l => l.startsWith
 writeFileSync(new URL("WORDNET-LICENSE.txt", OUT), licence + "\n");
 
 const byLen = [3, 4, 5, 6].map(n => n + ":" + sorted.filter(w => w.length === n).length).join(" ");
-console.log(`words: ${sorted.length} (game list ${fromGameList}, WordNet ${fromWordNet}, Wiktionary ${sorted.length - fromGameList - fromWordNet})  by length ${byLen}`);
+console.log(`words: ${sorted.length} (game list ${fromGameList}, WordNet ${fromWordNet}, Wiktionary ${Object.keys(wikt.add || {}).filter(w => !extra[w]).length}, added by hand ${Object.keys(extra).length})  by length ${byLen}`);
 console.log(`with a meaning: ${withMeaning} (${Math.round(withMeaning * 100 / sorted.length)}%)  definition files: ${Object.keys(shards).length}`);

@@ -123,7 +123,9 @@ To look for more words or meanings in Wiktionary, stream the kaikki.org extract 
 curl -sL https://kaikki.org/dictionary/English/kaikki.org-dictionary-English.jsonl.gz | node tools/scan-wiktionary.mjs <12dicts folder> report.json
 ```
 
-The report has `add` (every new word with a normal meaning), `addKnown` (new words that 12dicts' bigger lists also have), `fill` (meanings for words we have without one) and `stillMissing`. Copy what you approve into `tools/data/wiktionary.json`, then rebuild. Meanings use each word's most-used sense, and plurals and verb forms get their base word's meaning. Words with no built-in meaning (about 5%) still count, and their meaning is fetched from Wiktionary.
+The report has `add` (every new word with a normal meaning), `addKnown` (new words that 12dicts' bigger lists also have), `fill` (meanings for words we have without one) and `stillMissing`. Copy what you approve into `tools/data/wiktionary.json`, then rebuild.
+
+Words players report, like BANT, go in `tools/data/extra-words.json` as `"word": ["part of speech", "meaning"]`. They count for players, are scored rare so the computer doesn't play them, and are kept on every rebuild. Meanings use each word's most-used sense, and plurals and verb forms get their base word's meaning. Words with no built-in meaning (about 5%) still count, and their meaning is fetched from Wiktionary.
 
 ## How words are checked
 

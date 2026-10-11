@@ -1464,8 +1464,10 @@ banned 5
 banner 4
 banns 1
 bans 4
+bant 0
 bantam 2
 banter 3
+bants 0
 banyan 2
 banzai 1
 baobab 1

@@ -1,0 +1,5 @@
+{
+  "_about": "Words added by hand after players reported them (3-6 letters). Format: word: [part of speech, meaning]. Read by tools/build-dictionary.mjs; these count for players but are scored rare, so the computer doesn't play them.",
+  "bant": ["noun", "Banter; playful teasing (informal)."],
+  "bants": ["noun", "Banter; playful teasing, especially among friends (informal)."]
+}
