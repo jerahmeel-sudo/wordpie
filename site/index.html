@@ -251,6 +251,12 @@ button { cursor: pointer; }
 .chain .entry { display: grid; gap: 2px; min-width: 0; flex: 1 1 200px; }
 .chain .mean { font-size: .85rem; color: var(--ink); }
 .chain .mean i { color: var(--muted); }
+/* Failed attempts kept as evidence */
+.chain li.failed .tile { background: var(--stop-soft); color: var(--stop); box-shadow: inset 0 0 0 2px var(--stop); }
+.chain li.failed .tile.changed { background: var(--stop); color: #fff; box-shadow: inset 0 -3px 0 rgba(0,0,0,.25); }
+.chain li.failed .who { color: var(--stop); font-weight: 700; }
+.chain .xmark { display: inline-grid; place-items: center; width: 1.6rem; height: 1.6rem; border-radius: 50%; background: var(--stop); color: #fff; font-weight: 800; flex: none; }
+.chain li.failed.noword { padding-left: 2px; }
 
 /* Referee verdict */
 .verdict { display: grid; gap: 6px; width: 100%; padding: 14px 16px; border-radius: 10px; text-align: left; background: var(--bg); }
@@ -1156,6 +1162,7 @@ body[data-mode="people"] .field.people-show { display: grid !important; }
       players, start, games,
       level: players.some(p => p.cpu) ? cfg.level : null,   // set when playing the computer
       chain: [{ word: start, by: -1 }],
+      fails: [],
       used: new Set([start]),
       turn: 0,
       remaining: cfg.timer * 1000,
@@ -1186,10 +1193,10 @@ body[data-mode="people"] .field.people-show { display: grid !important; }
     renderPlayers();
     renderCurrent(G.chain.map(c => c.word));
     editorReset(current());
-    renderChain(G.chain.map(c => ({
+    renderChain(withFails(G.chain.map(c => ({
       word: c.word, meaning: c.meaning, pos: c.pos,
       who: c.by < 0 ? "Starting word" : G.players[c.by].name + (c.overruled ? " · players overruled the dictionary" : "")
-    })));
+    })), (G.fails || []).map(f => ({ ...f, who: G.players[f.by].name }))));
     $("#turnName").textContent = G.players[G.turn].name;
     setMsg("");
     renderClock();
@@ -1226,16 +1233,49 @@ body[data-mode="people"] .field.people-show { display: grid !important; }
     if (!canEdit()) paintWordDisplay(true);
   }
 
-  // entries: [{word, who, meaning, pos}], oldest first
+  // "played XELL, which isn't a word" -> { w: "XELL", why: "not a word" }; "ran out of time" -> { w: "", why: ... }
+  function failRecord(reason) {
+    const m = /^played ([A-Z]+), which (.*)$/.exec(reason || "");
+    const why = !m ? reason
+      : /already used/.test(m[2]) ? "already played"
+      : /players rejected/.test(m[2]) ? "rejected by the players"
+      : "not a word";
+    return { w: m ? m[1] : "", why };
+  }
+  // Puts failures in between the words: each failure sits after the word it tried to change.
+  // words: [{word, who, meaning, pos}] oldest first; fails: [{after, w, who, why}]
+  function withFails(words, fails) {
+    const out = [];
+    words.forEach((e, i) => {
+      out.push({ ...e, base: i > 0 ? words[i - 1].word : null });
+      (fails || []).filter(f => f.after === i).forEach(f =>
+        out.push({ word: f.w, base: e.word, failed: true, who: f.who + " · " + f.why }));
+    });
+    return out;
+  }
+
+  // entries: [{word, who, meaning, pos, base?, failed?}], oldest first
   function renderChain(entries) {
     const list = $("#chainList");
     list.innerHTML = "";
-    const played = entries.length - 1;
+    const played = entries.filter(e => !e.failed).length - 1;
     $("#chainCount").textContent = played + (played === 1 ? " word played" : " words played");
     [...entries].reverse().forEach((entry, ri) => {
       const idx = entries.length - 1 - ri;
-      const prev = idx > 0 ? entries[idx - 1].word : null;
+      const prev = entry.base !== undefined ? entry.base : idx > 0 ? entries[idx - 1].word : null;
       const li = document.createElement("li");
+      if (entry.failed) {
+        li.className = "failed" + (entry.word ? "" : " noword");
+        const x = document.createElement("span"); x.className = "xmark"; x.textContent = "✗";
+        x.setAttribute("aria-label", "failed");
+        if (entry.word) li.appendChild(tileRow(entry.word, { changed: prev ? diffIdx(prev, entry.word)[0] : -1, small: true }));
+        li.appendChild(x);
+        const who = document.createElement("span"); who.className = "who"; who.textContent = entry.who;
+        const box = document.createElement("div"); box.className = "entry"; box.appendChild(who);
+        li.appendChild(box);
+        list.appendChild(li);
+        return;
+      }
       li.appendChild(tileRow(entry.word, { changed: prev ? diffIdx(prev, entry.word)[0] : -1, small: true }));
       const box = document.createElement("div"); box.className = "entry";
       const who = document.createElement("span"); who.className = "who";
@@ -1498,6 +1538,9 @@ body[data-mode="people"] .field.people-show { display: grid !important; }
   function eliminate(i, reason) {
     resetGiveUp();
     G.players[i].out = true;
+    G.fails = G.fails || [];
+    G.fails.push({ after: G.chain.length - 1, by: i, ...failRecord(reason) });
+    renderAll();                                                // show the ✗ straight away
     const left = alive();
     if (left.length === 0) { finish(); return; }                 // final turn failed: draw
     if (left.length === 1) {
@@ -1937,7 +1980,7 @@ body[data-mode="people"] .field.people-show { display: grid !important; }
 
   function enterRoom(code, { watch = false } = {}) {
     ON.reactSeen = {}; ON.reactsReady = false; ON.watching = watch;
-    ON.active = true; ON.code = code; ON.seenFirst = false; ON.turnKey = null; ON.sheet = null; ON.chainKey = null; ON.lastHost = null; ON.claimKey = null;
+    ON.active = true; ON.code = code; ON.seenFirst = false; ON.turnKey = null; ON.sheet = null; ON.chainKey = null; ON.listKey = null; ON.lastHost = null; ON.claimKey = null;
     ON.ref = ON.db.ref("rooms/" + code);
     // Players mark themselves online under presence/; watchers under watchers/ (with a name for their reactions)
     const pres = ON.presRef = watch ? ON.ref.child("watchers/" + ON.uid) : ON.ref.child("presence/" + ON.uid);
@@ -2022,6 +2065,8 @@ body[data-mode="people"] .field.people-show { display: grid !important; }
     s.out = s.out || {};
     if (s.out[uid]) return;                    // already out: abort
     s.out[uid] = reason;
+    s.fails = s.fails || [];
+    s.fails.push({ after: (s.chain || []).length - 1, by: uid, ...failRecord(reason) });
     const wasTurn = s.order[s.turn] === uid;
     s.event = { id: rid(), type: "out", uid, reason };
     const alive = aliveOf(s);
@@ -2367,11 +2412,17 @@ body[data-mode="people"] .field.people-show { display: grid !important; }
     if (chainKey !== ON.chainKey) {
       ON.chainKey = chainKey;
       renderCurrent(chain.map(c => c.w));
-      renderChain(chain.map(c => ({
+      editorReset(onWord());
+    }
+    // The chain list also changes when someone fails; redrawing it never touches your half-finished move
+    const fails = s.fails || [];
+    const listKey = chainKey + "|" + fails.length;
+    if (listKey !== ON.listKey) {
+      ON.listKey = listKey;
+      renderChain(withFails(chain.map(c => ({
         word: c.w, pos: c.pos, meaning: c.meaning,
         who: !c.by ? "Starting word" : onName(c.by) + (c.unchecked ? " · not checked, dictionary offline" : "")
-      })));
-      editorReset(onWord());
+      })), fails.map(f => ({ ...f, who: onName(f.by) }))));
     }
     // Whose turn
     const mine = onMyTurn();
