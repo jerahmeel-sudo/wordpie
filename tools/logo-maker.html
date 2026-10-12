@@ -1,0 +1,98 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Wordpie logo maker</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,800&family=Atkinson+Hyperlegible:wght@700&display=swap">
+<style>
+  body { margin: 0; padding: 16px; display: grid; gap: 16px; justify-items: start;
+         background: repeating-conic-gradient(#ccc 0 25%, #eee 0 50%) 0 0 / 24px 24px; }   /* checkerboard shows transparency */
+  canvas { max-width: 100%; height: auto; outline: 1px solid #888; }
+  .dark { background: #0F1813; padding: 12px; }
+</style>
+</head>
+<body>
+<!-- Draws Wordpie's logo PNGs in the game's own style. window.wordpieLogos() returns { name: dataUrl }. -->
+<canvas id="icon" width="1024" height="1024"></canvas>
+<canvas id="iconClear" width="1024" height="1024"></canvas>
+<canvas id="logoLight" width="1600" height="480"></canvas>
+<div class="dark"><canvas id="logoDark" width="1600" height="480"></canvas></div>
+<canvas id="cover" width="1280" height="720"></canvas>
+<script>
+const C = { bg: "#E7EEE8", panel: "#F8FBF7", ink: "#15241D", inkDark: "#E5EEE8", muted: "#5A6B62",
+            tile: "#F5C443", tileInk: "#2B1F05", tileEdge: "#C2922A", go: "#1E8657", goEdge: "#14663F", line: "#C6D3CA" };
+const DISPLAY = '"Bricolage Grotesque", "Arial Black", sans-serif';
+const BODY = '"Atkinson Hyperlegible", Arial, sans-serif';
+
+function rr(ctx, x, y, w, h, r) {
+  ctx.beginPath();
+  ctx.moveTo(x + r, y); ctx.arcTo(x + w, y, x + w, y + h, r); ctx.arcTo(x + w, y + h, x, y + h, r);
+  ctx.arcTo(x, y + h, x, y, r); ctx.arcTo(x, y, x + w, y, r); ctx.closePath();
+}
+// A wooden letter tile like the game's: face colour with a darker bottom edge and a soft shadow
+function tile(ctx, x, y, size, ch, green) {
+  const r = size * 0.17, edge = size * 0.09, h = size * 1.05;
+  ctx.save();
+  ctx.shadowColor = "rgba(0,0,0,.18)"; ctx.shadowBlur = size * 0.12; ctx.shadowOffsetY = size * 0.05;
+  ctx.fillStyle = green ? C.goEdge : C.tileEdge; rr(ctx, x, y, size, h, r); ctx.fill();
+  ctx.restore();
+  ctx.fillStyle = green ? C.go : C.tile; rr(ctx, x, y, size, h - edge, r); ctx.fill();
+  ctx.fillStyle = green ? "#FFFFFF" : C.tileInk;
+  ctx.font = "800 " + Math.round(size * 0.58) + "px " + DISPLAY;
+  ctx.textAlign = "center"; ctx.textBaseline = "middle";
+  ctx.fillText(ch, x + size / 2, y + (h - edge) / 2 + size * 0.035);
+}
+function pie(ctx, x, y, size, gap) { [..."PIE"].forEach((ch, i) => tile(ctx, x + i * (size + gap), y, size, ch, i === 1)); }
+
+function drawIcon(id, withBackground) {
+  const cv = document.getElementById(id), ctx = cv.getContext("2d");
+  ctx.clearRect(0, 0, 1024, 1024);
+  if (withBackground) { ctx.fillStyle = C.bg; rr(ctx, 0, 0, 1024, 1024, 224); ctx.fill(); }
+  const size = withBackground ? 256 : 300, gap = withBackground ? 30 : 34, w = 3 * size + 2 * gap;
+  pie(ctx, (1024 - w) / 2, (1024 - size * 1.05) / 2, size, gap);
+}
+function drawLogo(id, ink) {
+  const cv = document.getElementById(id);
+  const size = 200, gap = 22, pad = 60, textX = pad + 3 * size + 2 * gap + 56;
+  // Size the image to fit the word exactly (the width depends on the font)
+  const m = cv.getContext("2d");
+  m.font = "800 250px " + DISPLAY;
+  cv.width = Math.ceil(textX + m.measureText("Wordpie").width + pad);
+  cv.height = 480;
+  const ctx = cv.getContext("2d");
+  pie(ctx, pad, (480 - size * 1.05) / 2, size, gap);
+  ctx.fillStyle = ink; ctx.textAlign = "left"; ctx.textBaseline = "middle";
+  ctx.font = "800 250px " + DISPLAY;
+  ctx.fillText("Wordpie", textX, 240 + 8);
+}
+function drawCover() {
+  const cv = document.getElementById("cover"), ctx = cv.getContext("2d");
+  ctx.fillStyle = C.bg; ctx.fillRect(0, 0, 1280, 720);
+  ctx.fillStyle = C.panel; rr(ctx, 48, 48, 1184, 624, 40); ctx.fill();
+  ctx.strokeStyle = C.line; ctx.lineWidth = 3; ctx.stroke();
+  // brand
+  const size = 150, gap = 16, w = 3 * size + 2 * gap;
+  pie(ctx, (1280 - w) / 2, 118, size, gap);
+  ctx.fillStyle = C.ink; ctx.textAlign = "center"; ctx.textBaseline = "alphabetic";
+  ctx.font = "800 150px " + DISPLAY; ctx.fillText("Wordpie", 640, 470);
+  ctx.font = "700 40px " + BODY; ctx.fillStyle = C.muted;
+  ctx.fillText("Change one letter. Beat the clock.", 640, 545);
+  ctx.font = "800 38px " + DISPLAY; ctx.fillStyle = C.go; ctx.fillText("wordpie.app", 640, 612);
+}
+
+window.wordpieLogos = async () => {
+  await document.fonts.load('800 100px "Bricolage Grotesque"');
+  await document.fonts.load('700 40px "Atkinson Hyperlegible"');
+  await document.fonts.ready;
+  drawIcon("icon", true); drawIcon("iconClear", false);
+  drawLogo("logoLight", C.ink); drawLogo("logoDark", C.inkDark); drawCover();
+  const out = {};
+  for (const [id, name] of [["icon", "wordpie-icon-1024.png"], ["iconClear", "wordpie-icon-transparent-1024.png"],
+                            ["logoLight", "wordpie-logo-for-light-backgrounds.png"], ["logoDark", "wordpie-logo-for-dark-backgrounds.png"],
+                            ["cover", "wordpie-cover-1280x720.png"]]) out[name] = document.getElementById(id).toDataURL("image/png");
+  return out;
+};
+window.wordpieLogos();
+</script>
+</body>
+</html>
